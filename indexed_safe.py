@@ -1,6 +1,8 @@
+import struct
 import zipfile
 import zlib
 from dataclasses import dataclass
+from gzip import _create_simple_gzip_header
 from pathlib import Path
 
 import boto3
@@ -34,18 +36,17 @@ def get_compressed_file_info(zip_path):
 
 
 def s3_download(client, bucket, key, file):
-    range_header = f'bytes={file.offset}-{file.offset + file.length}'
+    range_header = f'bytes={file.offset}-{file.offset + file.length - 1}'
     resp = client.get_object(Bucket=bucket, Key=key, Range=range_header)
     body = resp['Body'].read()
     return body
 
 
 def wrap_as_gz(payload, file: CompressedFile):
-    GZIP_HEADER = b'\x1f\x8b\x08\x00!k\xccc\x02\xff'
-    crc_bytes = file.crc.to_bytes(4, byteorder='big')
-    modulo_size = file.uncompressed_size % (2^32)
-    file_size_bytes = modulo_size.to_bytes(4, byteorder='big')
-    return GZIP_HEADER + payload + crc_bytes + file_size_bytes
+    header = _create_simple_gzip_header(1)
+    trailer = struct.pack("<LL", file.crc, (file.uncompressed_size & 0xFFFFFFFF))
+    gzip_wrapped = header + payload + trailer
+    return gzip_wrapped
 
 
 def s3_extract(client, bucket, key, file, convert_gzip=False):
@@ -54,6 +55,7 @@ def s3_extract(client, bucket, key, file, convert_gzip=False):
 
     if convert_gzip:
         body = wrap_as_gz(body, file)
+        out_name = out_name + '.gz'
     elif file.compress_type == zipfile.ZIP_STORED:
         pass
     elif file.compress_type == zipfile.ZIP_DEFLATED:

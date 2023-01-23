@@ -178,8 +178,7 @@ class S3Zip:
 if __name__ == '__main__':
     bucket = 'ffwilliams2-shenanigans'
     key = 'bursts/S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
-    # annotation_path = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.SAFE/annotation/s1a-iw2-slc-vh-20200604t022253-20200604t022318-032861-03ce65-002.xml'
-    annotation_path = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.SAFE/measurement/s1a-iw3-slc-vv-20200604t022251-20200604t022317-032861-03ce65-006.tiff'
+    annotation_path = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.SAFE/annotation/s1a-iw2-slc-vh-20200604t022253-20200604t022318-032861-03ce65-002.xml'
     client = boto3.client('s3')
     safe_zip = S3Zip(client, bucket, key)
 
