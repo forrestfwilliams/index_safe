@@ -4,8 +4,10 @@ import zlib
 from dataclasses import dataclass
 from gzip import _create_simple_gzip_header
 from pathlib import Path
+import pandas as pd
 
 import boto3
+import indexed_gzip as igzip
 from isal import isal_zlib  # noqa
 
 MAGIC_NUMBER = 28
@@ -69,15 +71,27 @@ def s3_extract(client, bucket, key, file, convert_gzip=False):
     return out_name
 
 
-if __name__ == '__main__':
-    bucket = 'ffwilliams2-shenanigans'
-    key = 'bursts/S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
-    file_name = Path(key).name
-    client = boto3.client('s3')
+def build_index(file_name: str, save=False) -> str:
+    with igzip.IndexedGzipFile(file_name) as f:
+        f.build_full_index()
+        seek_points = f.seek_points()
+        df = pd.DataFrame(seek_points, columns = ['uncompressed', 'compressed'])
+    
+    if save:
+        out_name = str(Path(file_name).with_suffix('.csv'))
+        df.to_csv(out_name)
+    return df
 
-    files = get_compressed_file_info(file_name)
-    file = files[6]
-    # with open('compressed.deflate', 'wb') as f:
-    #     body = s3_download(client, bucket, key, file)
-    #     f.write(body)
-    out = s3_extract(client, bucket, key, file, convert_gzip=True)
+
+if __name__ == '__main__':
+    # bucket = 'ffwilliams2-shenanigans'
+    # key = 'bursts/S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
+    # file_name = Path(key).name
+    # client = boto3.client('s3')
+    #
+    # files = get_compressed_file_info(file_name)
+    # file = files[22]  # 3 is IW2 VV SLC
+    # file_name = s3_extract(client, bucket, key, file, convert_gzip=True)
+    # index_name = build_index(file_name)
+    name = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gz'
+    index = build_index(name)
