@@ -5,10 +5,10 @@ import zipfile
 import zlib
 from dataclasses import dataclass
 from gzip import _create_simple_gzip_header
+from itertools import chain
 from pathlib import Path
 from typing import Iterable
 
-import boto3
 import indexed_gzip as igzip
 import numpy as np
 import pandas as pd
@@ -57,6 +57,23 @@ class BurstEntry:
     extraction_data: Extraction
     valid_window: Window
 
+    def to_tuple(self):
+        tuppled = (
+            self.name,
+            self.slc,
+            self.n_rows,
+            self.n_columns,
+            self.extraction_data.compressed_offset.start,
+            self.extraction_data.compressed_offset.stop,
+            self.extraction_data.decompressed_offset.start,
+            self.extraction_data.decompressed_offset.stop,
+            self.valid_window.xstart,
+            self.valid_window.xend,
+            self.valid_window.ystart,
+            self.valid_window.yend,
+        )
+        return tuppled
+
 
 @dataclass(frozen=True)
 class MetadataEntry:
@@ -64,72 +81,29 @@ class MetadataEntry:
     slc: str
     offset: Offset
 
-
-def get_compressed_file_info(zip_path):
-    files = []
-    with zipfile.ZipFile(zip_path) as f:
-        for zinfo in f.infolist():
-            file_offset = len(zinfo.FileHeader()) + zinfo.header_offset + MAGIC_NUMBER - len(zinfo.extra)
-            compressed_file = CompressedFile(
-                zinfo.filename, file_offset, zinfo.compress_size, zinfo.compress_type, zinfo.CRC, zinfo.file_size
-            )
-            files.append(compressed_file)
-
-    relevant = [x for x in files if 'xml' in Path(x.path).name or 'tiff' in Path(x.path).name]
-    return relevant
+    def to_tuple(self):
+        return (self.name, self.slc, self.offset.start, self.offset.stop)
 
 
-def s3_download(client, bucket, key, file):
-    range_header = f'bytes={file.offset}-{file.offset + file.length - 1}'
-    resp = client.get_object(Bucket=bucket, Key=key, Range=range_header)
-    body = resp['Body'].read()
-    return body
+def get_compressed_offset(zinfo: zipfile.ZipInfo):
+    file_offset = len(zinfo.FileHeader()) + zinfo.header_offset + MAGIC_NUMBER - len(zinfo.extra)
+    file_end = file_offset + zinfo.compress_size - 1
+    return Offset(file_offset, file_end)
 
 
-def wrap_as_gz(payload, file: CompressedFile):
+def wrap_as_gz(payload, zinfo: zipfile.ZipInfo):
     header = _create_simple_gzip_header(1)
-    trailer = struct.pack("<LL", file.crc, (file.uncompressed_size & 0xFFFFFFFF))
+    trailer = struct.pack("<LL", zinfo.CRC, (zinfo.file_size & 0xFFFFFFFF))
     gzip_wrapped = header + payload + trailer
     return gzip_wrapped
 
 
-def s3_extract(client, bucket, key, file, convert_gzip=False):
-    out_name = Path(file.path).name
-    body = s3_download(client, bucket, key, file)
-
-    if convert_gzip:
-        body = wrap_as_gz(body, file)
-        out_name = out_name + '.gz'
-    elif file.compress_type == zipfile.ZIP_STORED:
-        pass
-    elif file.compress_type == zipfile.ZIP_DEFLATED:
-        body = isal_zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(body)
-    else:
-        raise ValueError('Only DEFLATE and uncompressed formats accepted')
-
-    with open(out_name, 'wb') as f:
-        f.write(body)
-
-    return out_name
-
-
-def build_index_old(file_name: str, save=False) -> str:
-    with igzip.IndexedGzipFile(file_name) as f:
-        f.build_full_index()
-        seek_points = f.seek_points()
-        df = pd.DataFrame(seek_points, columns=['uncompressed', 'compressed'])
-
-    if save:
-        out_name = str(Path(file_name).with_suffix('.csv'))
-        df.to_csv(out_name)
-    return df
-
-
-def build_index(file_name: str, save=False) -> str:
-    with igzip.IndexedGzipFile(file_name) as f:
+def build_index(file):
+    with igzip.IndexedGzipFile(file) as f:
         f.build_full_index()
         seek_points = list(f.seek_points())
-        array = np.array(seek_points)  # first column is uncompressed, second is compressed
+
+    array = np.array(seek_points)  # first column is uncompressed, second is compressed
     return array
 
 
@@ -174,11 +148,13 @@ def compute_valid_window(index: int, burst: ET.Element) -> Window:
     return valid_window
 
 
-def get_burst_annotation_data(archive_name, file_name):
-    with zipfile.ZipFile(archive_name) as z:
-        content = z.read(file_name)
+def get_burst_annotation_data(zipped_safe_path, swath_path):
+    swath_path = Path(swath_path)
+    annotation_path = swath_path.parent.parent / 'annotation' / swath_path.with_suffix('.xml').name
+    with zipfile.ZipFile(zipped_safe_path) as f:
+        annotation_bytes = f.read(str(annotation_path))
 
-    xml = ET.parse(io.BytesIO(content)).getroot()
+    xml = ET.parse(io.BytesIO(annotation_bytes)).getroot()
     burst_xmls = xml.findall('.//{*}burst')
     n_lines = int(xml.findtext('.//{*}linesPerBurst'))
     n_samples = int(xml.findtext('.//{*}samplesPerBurst'))
@@ -213,47 +189,73 @@ def get_extraction_offsets(index: np.ndarray, uncompressed_offsets: Iterable[Off
     return extractions
 
 
+def create_metadata_entry(zipped_safe_path, zinfo):
+    slc_name = Path(zipped_safe_path).with_suffix('').name
+    name = Path(zinfo.filename).name
+    compressed_offset = get_compressed_offset(zinfo)
+    return MetadataEntry(name, slc_name, compressed_offset)
+
+
+def create_burst_entries(zipped_safe_path, zinfo):
+    slc_name = Path(zipped_safe_path).with_suffix('').name
+    swath_offset = get_compressed_offset(zinfo)
+    with open(zipped_safe_path, 'rb') as f:
+        f.seek(swath_offset.start)
+        deflate_content = f.read(swath_offset.stop - swath_offset.start)
+
+    gz_content = wrap_as_gz(deflate_content, zinfo)
+    compression_index = build_index(io.BytesIO(gz_content))
+
+    burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
+    extractions = get_extraction_offsets(compression_index, burst_offsets)
+
+    burst_entries = []
+    for i, (extraction, burst_window) in enumerate(zip(extractions, burst_windows)):
+        burst_entry = BurstEntry(f'{i}.tiff', slc_name, burst_shape[0], burst_shape[0], extraction, burst_window)
+        burst_entries.append(burst_entry)
+    return burst_entries
+
+
+def save_as_csv(entries: Iterable[MetadataEntry | BurstEntry], out_name):
+    if isinstance(entries[0], MetadataEntry):
+        columns = ['name', 'slc', 'offset_start', 'offset_stop']
+    else:
+        columns = [
+            'name',
+            'slc',
+            'n_rows',
+            'n_columns',
+            'download_start',
+            'download_stop',
+            'offset_start',
+            'offset_stop',
+            'valid_x_start',
+            'valid_x_stop',
+            'valid_y_start',
+            'valid_y_stop',
+        ]
+
+    df = pd.DataFrame([x.to_tuple() for x in entries], columns=columns)
+    df.to_csv(out_name, index=False)
+    return out_name
+
+
 def index_safe(zipped_safe_path):
-    breakpoint()
+    slc_name = Path(zipped_safe_path).with_suffix('').name
     with zipfile.ZipFile(zipped_safe_path) as f:
         tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
         xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
 
+    metadata_entries = [create_metadata_entry(slc_name, x) for x in xmls]
+    save_as_csv(metadata_entries, 'metadata.csv')
+
+    burst_entries = list(chain.from_iterable([create_burst_entries(zipped_safe_path, x) for x in tiffs[0:1]]))
+    save_as_csv(burst_entries, 'bursts.csv')
     return None
-
-
-def burst_population(safe_path):
-    return None
-
-def index_xml():
-    return None
-
-
-# function to get interior and exterior offsets
 
 
 if __name__ == '__main__':
     zip_filename = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
     out = index_safe(zip_filename)
-    # bucket = 'ffwilliams2-shenanigans'
-    # key = 'bursts/S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
-    # file_name = Path(key).name
-    # client = boto3.client('s3')
 
-    # files = get_compressed_file_info(file_name)
-    # file = files[22]  # 3 is IW2 VV SLC
-    # file_name = s3_extract(client, bucket, key, file, convert_gzip=True)
-    # index_name = build_index(file_name)
-
-    # zip_filename = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
-    # interior_path = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.SAFE/annotation/s1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.xml'
-    # name = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gz'
-    # index = build_index(name)
-    # burst_shape, uncompressed_offsets, valid_windows = get_burst_annotation_data(zip_filename, interior_path)
-    # offsets = get_extraction_offsets(index, uncompressed_offsets)
-
-    # zip_filename = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
-    # interior_path = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.SAFE/annotation/s1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.xml'
-    # shape, offsets = get_burst_annotation_data(zip_filename, interior_path)
-    breakpoint()
     print('done')
