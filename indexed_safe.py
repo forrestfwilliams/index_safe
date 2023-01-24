@@ -2,8 +2,6 @@ import io
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
-import zlib
-from dataclasses import dataclass
 from gzip import _create_simple_gzip_header
 from itertools import chain
 from pathlib import Path
@@ -14,81 +12,15 @@ import numpy as np
 import pandas as pd
 from isal import isal_zlib  # noqa
 
+import data
+
 MAGIC_NUMBER = 28
-
-
-@dataclass(frozen=True)
-class CompressedFile:
-    path: str
-    offset: int
-    length: int
-    compress_type: int
-    crc: int
-    uncompressed_size: int
-
-
-# TODO can also be np.array
-@dataclass(frozen=True)
-class Offset:
-    start: int
-    stop: int
-
-
-@dataclass(frozen=True)
-class Window:
-    xstart: int
-    ystart: int
-    xend: int
-    yend: int
-
-
-@dataclass(frozen=True)
-class Extraction:
-    compressed_offset: Offset
-    decompressed_offset: Offset
-
-
-@dataclass(frozen=True)
-class BurstEntry:
-    name: str
-    slc: str
-    n_rows: int
-    n_columns: int
-    extraction_data: Extraction
-    valid_window: Window
-
-    def to_tuple(self):
-        tuppled = (
-            self.name,
-            self.slc,
-            self.n_rows,
-            self.n_columns,
-            self.extraction_data.compressed_offset.start,
-            self.extraction_data.compressed_offset.stop,
-            self.extraction_data.decompressed_offset.start,
-            self.extraction_data.decompressed_offset.stop,
-            self.valid_window.xstart,
-            self.valid_window.xend,
-            self.valid_window.ystart,
-            self.valid_window.yend,
-        )
-        return tuppled
-
-
-@dataclass(frozen=True)
-class MetadataEntry:
-    name: str
-    slc: str
-    offset: Offset
-
-    def to_tuple(self):
-        return (self.name, self.slc, self.offset.start, self.offset.stop)
 
 
 def get_compressed_offset(zinfo: zipfile.ZipInfo):
     file_offset = len(zinfo.FileHeader()) + zinfo.header_offset + MAGIC_NUMBER - len(zinfo.extra)
     file_end = file_offset + zinfo.compress_size - 1
-    return Offset(file_offset, file_end)
+    return data.Offset(file_offset, file_end)
 
 
 def wrap_as_gz(payload, zinfo: zipfile.ZipInfo):
@@ -107,11 +39,11 @@ def build_index(file):
     return array
 
 
-def compute_valid_window(index: int, burst: ET.Element) -> Window:
+def compute_valid_window(index: int, burst: ET.Element) -> data.Window:
     """Written by Jason Ninneman for the I&A team's burst extractor"""
 
     # all offsets, even invalid offsets
-    offsets_range = Offset(
+    offsets_range = data.Offset(
         np.array([int(val) for val in burst.find('firstValidSample').text.split()]),
         np.array([int(val) for val in burst.find('lastValidSample').text.split()]),
     )
@@ -121,14 +53,14 @@ def compute_valid_window(index: int, burst: ET.Element) -> Window:
 
     # get first and last sample with valid data per line
     # x-axis, range
-    valid_offsets_range = Offset(
+    valid_offsets_range = data.Offset(
         offsets_range.start[lines_with_valid_data].min(),
         offsets_range.stop[lines_with_valid_data].max(),
     )
 
     # get the first and last line with valid data
     # y-axis, azimuth
-    valid_offsets_azimuth = Offset(
+    valid_offsets_azimuth = data.Offset(
         lines_with_valid_data.min(),
         lines_with_valid_data.max(),
     )
@@ -138,7 +70,7 @@ def compute_valid_window(index: int, burst: ET.Element) -> Window:
     # y-length
     length_azimuth = len(lines_with_valid_data)
 
-    valid_window = Window(
+    valid_window = data.Window(
         valid_offsets_range.start,
         valid_offsets_azimuth.start,
         valid_offsets_range.start + length_range,
@@ -161,12 +93,12 @@ def get_burst_annotation_data(zipped_safe_path, swath_path):
     burst_shape = (n_lines, n_samples)  #  y, x for numpy
     burst_starts = [int(x.findtext('.//{*}byteOffset')) for x in burst_xmls]
     burst_lengths = burst_starts[1] - burst_starts[0]
-    burst_offsets = [Offset(x, x + burst_lengths - 1) for x in burst_starts]
+    burst_offsets = [data.Offset(x, x + burst_lengths - 1) for x in burst_starts]
     burst_windows = [compute_valid_window(i, burst_xml) for i, burst_xml in enumerate(burst_xmls)]
     return burst_shape, burst_offsets, burst_windows
 
 
-def get_extraction_offsets(index: np.ndarray, uncompressed_offsets: Iterable[Offset]):
+def get_extraction_offsets(index: np.ndarray, uncompressed_offsets: Iterable[data.Offset]):
     first_entry = index[index[:, 0].argmin()]
     header_size = first_entry[1] - first_entry[0]
 
@@ -178,12 +110,12 @@ def get_extraction_offsets(index: np.ndarray, uncompressed_offsets: Iterable[Off
         greater_than_stop = index[index[:, 0] > uncompressed_offset.stop]
         stop_pair = greater_than_stop[greater_than_stop[:, 0].argmin()]
 
-        decompress_offset = Offset(start_pair[1] - header_size, stop_pair[1] - header_size)
-        data_offset = Offset(
+        decompress_offset = data.Offset(start_pair[1] - header_size, stop_pair[1] - header_size)
+        data_offset = data.Offset(
             uncompressed_offset.start - start_pair[0],
             uncompressed_offset.stop - start_pair[0],
         )
-        extractor = Extraction(decompress_offset, data_offset)
+        extractor = data.Extraction(decompress_offset, data_offset)
         extractions.append(extractor)
 
     return extractions
@@ -193,7 +125,14 @@ def create_metadata_entry(zipped_safe_path, zinfo):
     slc_name = Path(zipped_safe_path).with_suffix('').name
     name = Path(zinfo.filename).name
     compressed_offset = get_compressed_offset(zinfo)
-    return MetadataEntry(name, slc_name, compressed_offset)
+    return data.MetadataEntry(name, slc_name, compressed_offset)
+
+
+def create_burst_name(slc_name, swath_name, burst_index):
+    slc_parts = slc_name.split('_')[:7]
+    _, swath, _, polarization, *_ = swath_name.split('-')
+    all_parts = slc_parts + [swath.upper(), polarization.upper(), str(burst_index)]
+    return '_'.join(all_parts) + '.tiff'
 
 
 def create_burst_entries(zipped_safe_path, zinfo):
@@ -211,13 +150,14 @@ def create_burst_entries(zipped_safe_path, zinfo):
 
     burst_entries = []
     for i, (extraction, burst_window) in enumerate(zip(extractions, burst_windows)):
-        burst_entry = BurstEntry(f'{i}.tiff', slc_name, burst_shape[0], burst_shape[0], extraction, burst_window)
+        burst_name = create_burst_name(slc_name, zinfo.filename, i)
+        burst_entry = data.BurstEntry(burst_name, slc_name, burst_shape[0], burst_shape[0], extraction, burst_window)
         burst_entries.append(burst_entry)
     return burst_entries
 
 
-def save_as_csv(entries: Iterable[MetadataEntry | BurstEntry], out_name):
-    if isinstance(entries[0], MetadataEntry):
+def save_as_csv(entries: Iterable[data.MetadataEntry | data.BurstEntry], out_name):
+    if isinstance(entries[0], data.MetadataEntry):
         columns = ['name', 'slc', 'offset_start', 'offset_stop']
     else:
         columns = [
