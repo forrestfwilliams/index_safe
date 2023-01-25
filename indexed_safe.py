@@ -105,7 +105,7 @@ def get_extraction_offsets(swath_offset: int, index: np.ndarray, uncompressed_of
     header_size = first_entry[1] - first_entry[0]
     compressed_data_offset = swath_offset - header_size
 
-    extractions = []
+    offset_pairs = []
     for uncompressed_offset in uncompressed_offsets:
         less_than_start = index[index[:, 0] < uncompressed_offset.start]
         start_pair = less_than_start[less_than_start[:, 0].argmax()]
@@ -114,23 +114,23 @@ def get_extraction_offsets(swath_offset: int, index: np.ndarray, uncompressed_of
         greater_than_stop = index[index[:, 0] > uncompressed_offset.stop]
         stop_pair = greater_than_stop[greater_than_stop[:, 0].argmin()]
         stop_compress = stop_pair[1] + compressed_data_offset
-        
+
         decompress_offset = data.Offset(start_compress, stop_compress)
         data_offset = data.Offset(
             uncompressed_offset.start - start_pair[0],
             uncompressed_offset.stop - start_pair[0],
         )
-        extractor = data.Extraction(decompress_offset, data_offset)
-        extractions.append(extractor)
+        offset_pair = (decompress_offset, data_offset)
+        offset_pairs.append(offset_pair)
 
-    return extractions
+    return offset_pairs
 
 
-def create_metadata_entry(zipped_safe_path, zinfo):
+def create_xml_metadata(zipped_safe_path, zinfo):
     slc_name = Path(zipped_safe_path).with_suffix('').name
     name = Path(zinfo.filename).name
     compressed_offset = get_compressed_offset(zinfo)
-    return data.MetadataEntry(name, slc_name, compressed_offset)
+    return data.XmlMetadata(name, slc_name, compressed_offset)
 
 
 def create_burst_name(slc_name, swath_name, burst_index):
@@ -140,7 +140,7 @@ def create_burst_name(slc_name, swath_name, burst_index):
     return '_'.join(all_parts) + '.tiff'
 
 
-def create_burst_entries(zipped_safe_path, zinfo):
+def create_burst_metadatas(zipped_safe_path, zinfo):
     slc_name = Path(zipped_safe_path).with_suffix('').name
     swath_offset = get_compressed_offset(zinfo)
     with open(zipped_safe_path, 'rb') as f:
@@ -151,18 +151,18 @@ def create_burst_entries(zipped_safe_path, zinfo):
     compression_index = build_index(io.BytesIO(gz_content))
 
     burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
-    extractions = get_extraction_offsets(swath_offset.start, compression_index, burst_offsets)
+    offset_pairs = get_extraction_offsets(swath_offset.start, compression_index, burst_offsets)
 
-    burst_entries = []
-    for i, (extraction, burst_window) in enumerate(zip(extractions, burst_windows)):
+    bursts = []
+    for i, (offset_pair, burst_window) in enumerate(zip(offset_pairs, burst_windows)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
-        burst_entry = data.BurstEntry(burst_name, slc_name, burst_shape[0], burst_shape[1], extraction, burst_window)
-        burst_entries.append(burst_entry)
-    return burst_entries
+        burst = data.BurstMetadata(burst_name, slc_name, burst_shape, offset_pair[0], offset_pair[1], burst_window)
+        bursts.append(burst)
+    return bursts
 
 
-def save_as_csv(entries: Iterable[data.MetadataEntry | data.BurstEntry], out_name):
-    if isinstance(entries[0], data.MetadataEntry):
+def save_as_csv(entries: Iterable[data.XmlMetadata | data.BurstMetadata], out_name):
+    if isinstance(entries[0], data.XmlMetadata):
         columns = ['name', 'slc', 'offset_start', 'offset_stop']
     else:
         columns = [
@@ -191,10 +191,10 @@ def index_safe(zipped_safe_path):
         tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
         xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
 
-    metadata_entries = [create_metadata_entry(slc_name, x) for x in xmls]
-    save_as_csv(metadata_entries, 'metadata.csv')
-    burst_entries = list(chain.from_iterable([create_burst_entries(zipped_safe_path, x) for x in tiffs[3:4]]))
-    save_as_csv(burst_entries, 'bursts.csv')
+    xml_metadatas = [create_xml_metadata(slc_name, x) for x in xmls]
+    save_as_csv(xml_metadatas, 'metadata.csv')
+    burst_metadatas = list(chain.from_iterable([create_burst_metadatas(zipped_safe_path, x) for x in tiffs[3:4]]))
+    save_as_csv(burst_metadatas, 'bursts.csv')
     return None
 
 

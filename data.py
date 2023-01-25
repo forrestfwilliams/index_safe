@@ -1,15 +1,5 @@
 from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class CompressedFile:
-    path: str
-    offset: int
-    length: int
-    compress_type: int
-    crc: int
-    uncompressed_size: int
-
+from typing import Iterable
 
 # TODO can also be np.array
 @dataclass(frozen=True)
@@ -27,30 +17,24 @@ class Window:
 
 
 @dataclass(frozen=True)
-class Extraction:
-    compressed_offset: Offset
-    decompressed_offset: Offset
-
-
-@dataclass(frozen=True)
-class BurstEntry:
+class BurstMetadata:
     name: str
     slc: str
-    n_rows: int
-    n_columns: int
-    extraction_data: Extraction
+    shape: Iterable[int]  # n_row, n_column
+    compressed_offset: Offset
+    decompressed_offset: Offset
     valid_window: Window
 
     def to_tuple(self):
         tuppled = (
             self.name,
             self.slc,
-            self.n_rows,
-            self.n_columns,
-            self.extraction_data.compressed_offset.start,
-            self.extraction_data.compressed_offset.stop,
-            self.extraction_data.decompressed_offset.start,
-            self.extraction_data.decompressed_offset.stop,
+            self.shape[0],
+            self.shape[1],
+            self.compressed_offset.start,
+            self.compressed_offset.stop,
+            self.decompressed_offset.start,
+            self.decompressed_offset.stop,
             self.valid_window.xstart,
             self.valid_window.xend,
             self.valid_window.ystart,
@@ -60,7 +44,7 @@ class BurstEntry:
 
 
 @dataclass(frozen=True)
-class MetadataEntry:
+class XmlMetadata:
     name: str
     slc: str
     offset: Offset
