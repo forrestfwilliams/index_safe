@@ -3,19 +3,20 @@ import struct
 import xml.etree.ElementTree as ET
 import zipfile
 from gzip import _create_simple_gzip_header
-from itertools import chain
 from pathlib import Path
 from typing import Iterable
+from tqdm import tqdm
 
 import indexed_gzip as igzip
 import numpy as np
 import pandas as pd
-from isal import isal_zlib  # noqa
 
 import data
 
+KB = 1024
+MB = 1024 * KB
+GB = 1024 * MB
 MAGIC_NUMBER = 28
-
 
 def get_compressed_offset(zinfo: zipfile.ZipInfo):
     file_offset = len(zinfo.FileHeader()) + zinfo.header_offset + MAGIC_NUMBER - len(zinfo.extra)
@@ -31,13 +32,11 @@ def wrap_as_gz(payload, zinfo: zipfile.ZipInfo):
 
 
 def build_index(file):
-    with igzip.IndexedGzipFile(file) as f:
+    with igzip.IndexedGzipFile(file, spacing=5*MB, readbuf_size=2*GB) as f:
         f.build_full_index()
         seek_points = list(f.seek_points())
 
     array = np.array(seek_points)  # first column is uncompressed, second is compressed
-    # import pandas as pd
-    # pd.DataFrame(array).to_csv('indexes.csv', index=False)
     return array
 
 
@@ -191,9 +190,17 @@ def index_safe(zipped_safe_path):
         tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
         xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
 
-    xml_metadatas = [create_xml_metadata(slc_name, x) for x in xmls]
+    print('Reading XMLs...')
+    xml_metadatas = [create_xml_metadata(slc_name, x) for x in tqdm(xmls)]
     save_as_csv(xml_metadatas, 'metadata.csv')
-    burst_metadatas = list(chain.from_iterable([create_burst_metadatas(zipped_safe_path, x) for x in tiffs[3:4]]))
+
+    print('Reading Bursts...')
+    burst_metadatas = []
+    # FIXME 3 fails in index step
+    # tiffs = tiffs[0:2] + tiffs[3:]
+    for tiff in tqdm(tiffs):
+        burst_metadata = create_burst_metadatas(zipped_safe_path, tiff)
+        burst_metadatas = burst_metadatas + burst_metadata
     save_as_csv(burst_metadatas, 'bursts.csv')
     return None
 
@@ -201,5 +208,4 @@ def index_safe(zipped_safe_path):
 if __name__ == '__main__':
     zip_filename = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
     out = index_safe(zip_filename)
-
-    print('done')
+    print('Done!')

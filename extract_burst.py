@@ -12,7 +12,8 @@ from osgeo import gdal
 import data
 
 KB = 1024
-MB = KB * KB
+MB = 1024 * KB
+GB = 1024 * MB
 
 
 def calculate_range_parameters(download_start, download_stop, chunk_size=10 * MB):
