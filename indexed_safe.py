@@ -26,8 +26,8 @@ def get_compressed_offset(zinfo: zipfile.ZipInfo):
 def wrap_as_gz(payload, zinfo: zipfile.ZipInfo):
     header = _create_simple_gzip_header(1)
     trailer = struct.pack("<LL", zinfo.CRC, (zinfo.file_size & 0xFFFFFFFF))
-    gzip_wrapped = header + payload + trailer
-    return gzip_wrapped
+    gz_wrapped = header + payload + trailer
+    return gz_wrapped
 
 
 def build_index(file):
@@ -36,6 +36,8 @@ def build_index(file):
         seek_points = list(f.seek_points())
 
     array = np.array(seek_points)  # first column is uncompressed, second is compressed
+    # import pandas as pd
+    # pd.DataFrame(array).to_csv('indexes.csv', index=False)
     return array
 
 
@@ -98,19 +100,22 @@ def get_burst_annotation_data(zipped_safe_path, swath_path):
     return burst_shape, burst_offsets, burst_windows
 
 
-def get_extraction_offsets(index: np.ndarray, uncompressed_offsets: Iterable[data.Offset]):
+def get_extraction_offsets(swath_offset: int, index: np.ndarray, uncompressed_offsets: Iterable[data.Offset]):
     first_entry = index[index[:, 0].argmin()]
     header_size = first_entry[1] - first_entry[0]
+    compressed_data_offset = swath_offset - header_size
 
     extractions = []
     for uncompressed_offset in uncompressed_offsets:
         less_than_start = index[index[:, 0] < uncompressed_offset.start]
         start_pair = less_than_start[less_than_start[:, 0].argmax()]
+        start_compress = start_pair[1] + compressed_data_offset
 
         greater_than_stop = index[index[:, 0] > uncompressed_offset.stop]
         stop_pair = greater_than_stop[greater_than_stop[:, 0].argmin()]
-
-        decompress_offset = data.Offset(start_pair[1] - header_size, stop_pair[1] - header_size)
+        stop_compress = stop_pair[1] + compressed_data_offset
+        
+        decompress_offset = data.Offset(start_compress, stop_compress)
         data_offset = data.Offset(
             uncompressed_offset.start - start_pair[0],
             uncompressed_offset.stop - start_pair[0],
@@ -146,12 +151,12 @@ def create_burst_entries(zipped_safe_path, zinfo):
     compression_index = build_index(io.BytesIO(gz_content))
 
     burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
-    extractions = get_extraction_offsets(compression_index, burst_offsets)
+    extractions = get_extraction_offsets(swath_offset.start, compression_index, burst_offsets)
 
     burst_entries = []
     for i, (extraction, burst_window) in enumerate(zip(extractions, burst_windows)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
-        burst_entry = data.BurstEntry(burst_name, slc_name, burst_shape[0], burst_shape[0], extraction, burst_window)
+        burst_entry = data.BurstEntry(burst_name, slc_name, burst_shape[0], burst_shape[1], extraction, burst_window)
         burst_entries.append(burst_entry)
     return burst_entries
 
@@ -188,8 +193,7 @@ def index_safe(zipped_safe_path):
 
     metadata_entries = [create_metadata_entry(slc_name, x) for x in xmls]
     save_as_csv(metadata_entries, 'metadata.csv')
-
-    burst_entries = list(chain.from_iterable([create_burst_entries(zipped_safe_path, x) for x in tiffs[0:1]]))
+    burst_entries = list(chain.from_iterable([create_burst_entries(zipped_safe_path, x) for x in tiffs[3:4]]))
     save_as_csv(burst_entries, 'bursts.csv')
     return None
 
