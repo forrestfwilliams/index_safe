@@ -58,7 +58,7 @@ def row_to_burst_entry(row):
     return burst_entry
 
 
-def array_to_raster(out_path, array, fmt='ENVI'):
+def array_to_raster(out_path, array, fmt='GTiff'):
     driver = gdal.GetDriverByName(fmt)
     n_rows, n_cols = array.shape
     out_dataset = driver.Create(out_path, n_cols, n_rows, 1, gdal.GDT_CFloat32)

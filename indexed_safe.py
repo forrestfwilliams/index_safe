@@ -95,7 +95,7 @@ def get_burst_annotation_data(zipped_safe_path, swath_path):
     burst_shape = (n_lines, n_samples)  #  y, x for numpy
     burst_starts = [int(x.findtext('.//{*}byteOffset')) for x in burst_xmls]
     burst_lengths = burst_starts[1] - burst_starts[0]
-    burst_offsets = [data.Offset(x, x + burst_lengths - 1) for x in burst_starts]
+    burst_offsets = [data.Offset(x, x + burst_lengths) for x in burst_starts]
     burst_windows = [compute_valid_window(i, burst_xml) for i, burst_xml in enumerate(burst_xmls)]
     return burst_shape, burst_offsets, burst_windows
 
