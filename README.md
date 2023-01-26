@@ -32,7 +32,6 @@ directly.
 Then, run `extract_burst.py` Ex:
 ```bash
 extract_burst \
-    S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85 \
     S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff \
     bursts.csv
 ```

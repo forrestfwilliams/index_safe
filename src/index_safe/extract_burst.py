@@ -97,12 +97,12 @@ def extract_burst_s3(bucket, key, burst_name, df_file_name):
     return out_name
 
 
-def extract_burst_http(slc_name, burst_name, df_file_name):
+def extract_burst_http(burst_name, df_file_name):
     df = pd.read_csv(df_file_name)
     single_burst = df.loc[df.name == burst_name].squeeze()
     burst_metadata = row_to_burst_entry(single_burst)
 
-    url = utils.get_download_url(slc_name)
+    url = utils.get_download_url(single_burst['slc'])
     burst_bytes = extract_bytes_http(url, burst_metadata)
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
@@ -114,16 +114,14 @@ def main():
     """Example Command:
 
     extract_burst.py \
-        S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85 \
         S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff \
         bursts.csv
     """
     parser = ArgumentParser()
-    parser.add_argument('scene')
     parser.add_argument('burst')
     parser.add_argument('df')
     args = parser.parse_args()
-    extract_burst_http(args.scene, args.burst, args.df)
+    extract_burst_http(args.burst, args.df)
 
 
 if __name__ == '__main__':
