@@ -3,7 +3,7 @@ from typing import Iterable
 from pathlib import Path
 
 import requests
-import tqdm
+from tqdm import tqdm
 
 KB = 1024
 MB = 1024 * KB

@@ -296,25 +296,26 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
     return out_name
 
 
-def index_safe(slc_name: str):
+def index_safe(slc_name: str, keep: bool = True):
     """Create the index and other metadata needed to directly download
     and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
     this information in csv files.
 
     Args:
         slc_name: Scene name to index
+        keep: If False, delete SLC zip after indexing
 
     Returns:
         No function outputs, but saves a metadata.csv and burst.csv to
         the working directory
     """
-    zipped_safe_path =f'{slc_name}.zip' 
+    zipped_safe_path = f'{slc_name}.zip'
     if not Path(zipped_safe_path).exists():
         print('Downloading SLC...')
         utils.download_slc(slc_name)
     else:
         print('SLC exists locally, skipping download')
-        
+
     with zipfile.ZipFile(zipped_safe_path) as f:
         tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
         xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
@@ -330,10 +331,15 @@ def index_safe(slc_name: str):
         burst_metadatas = burst_metadatas + burst_metadata
 
     save_as_csv(burst_metadatas, 'bursts.csv')
-    os.remove(zipped_safe_path)
+    if not keep:
+        os.remove(zipped_safe_path)
 
 
 def main():
+    """Example Command:
+
+    index_safe.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85
+    """
     parser = ArgumentParser()
     parser.add_argument('scene')
     args = parser.parse_args()
