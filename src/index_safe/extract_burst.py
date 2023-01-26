@@ -8,7 +8,7 @@ import requests
 # from isal import isal_zlib
 from osgeo import gdal
 
-import utils
+from . import utils
 
 KB = 1024
 MB = 1024 * KB
