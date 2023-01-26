@@ -1,7 +1,4 @@
-import math
 import zlib
-from concurrent.futures import ThreadPoolExecutor
-from itertools import repeat
 
 import boto3
 import numpy as np
@@ -14,32 +11,6 @@ import data
 KB = 1024
 MB = 1024 * KB
 GB = 1024 * MB
-
-
-# def calculate_range_parameters(download_start, download_stop, chunk_size=10 * MB):
-#     total_size = download_stop - download_start
-#     num_parts = int(math.ceil(total_size / float(chunk_size)))
-#     range_params = []
-#     for part_index in range(num_parts):
-#         start_range = (part_index * chunk_size) + download_start
-#         if part_index == num_parts - 1:
-#             end_range = str(total_size + download_start)
-#         else:
-#             end_range = start_range + chunk_size - 1
-#
-#         range_params.append(f'bytes={start_range}-{end_range}')
-#     return range_params
-#
-#
-# def s3_download_multithread(client, bucket, key, metadata):
-#     range_params = calculate_range_parameters(metadata.compressed_offset.start, metadata.compressed_offset.stop)
-#
-#     # Dispatch work tasks with our client
-#     with ThreadPoolExecutor(max_workers=20) as executor:
-#         results = executor.map(s3_download, repeat(client), repeat(bucket), repeat(key), range_params)
-#
-#     content = b''.join(results)
-#     return content
 
 
 def http_download(client, url, range_header):
