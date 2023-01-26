@@ -11,61 +11,17 @@ from typing import Iterable
 import indexed_gzip as igzip
 import numpy as np
 import pandas as pd
-import requests
 from tqdm import tqdm
 
-import data
+import utils
 
 KB = 1024
 MB = 1024 * KB
 GB = 1024 * MB
 MAGIC_NUMBER = 28
-SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
 
 
-def get_download_url(scene: str) -> str:
-    """Get download url for Sentinel-1 Scene
-
-    Args:
-        scene: scene name
-    Returns:
-        Scene url
-    """
-    mission = scene[0] + scene[2]
-    product_type = scene[7:10]
-    if product_type == 'GRD':
-        product_type += '_' + scene[10] + scene[14]
-    url = f'{SENTINEL_DISTRIBUTION_URL}/{product_type}/{mission}/{scene}.zip'
-    return url
-
-
-def download_slc(scene: str, chunk_size=10 * MB) -> str:
-    """Download a file
-
-    Args:
-        url: URL of the file to download
-        directory: Directory location to place files into
-        chunk_size: Size to chunk the download into
-    Returns:
-        download_path: The path to the downloaded file
-    """
-    url = get_download_url(scene)
-    download_path = Path(url).name
-    session = requests.Session()
-    with session.get(url, stream=True) as s:
-        s.raise_for_status()
-        total = int(s.headers.get('content-length', 0))
-        with open(download_path, "wb") as f:
-            with tqdm(unit='B', unit_scale=True, unit_divisor=1024, total=total) as pbar:
-                for chunk in s.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        pbar.update(len(chunk))
-    session.close()
-    return url
-
-
-def get_compressed_offset(zinfo: zipfile.ZipInfo) -> data.Offset:
+def get_compressed_offset(zinfo: zipfile.ZipInfo) -> utils.Offset:
     """Get the byte offset (beginning byte and end byte inclusive)
     for a member of a zip archive. Currently relies on a
     "magic number" due some strangeness in zip archive structure
@@ -74,7 +30,7 @@ def get_compressed_offset(zinfo: zipfile.ZipInfo) -> data.Offset:
     # FIXME - 1 is likely not correct
     # file_end = file_offset + zinfo.compress_size - 1
     file_end = file_offset + zinfo.compress_size
-    return data.Offset(file_offset, file_end)
+    return utils.Offset(file_offset, file_end)
 
 
 def wrap_as_gz(payload: bytes, zinfo: zipfile.ZipInfo) -> bytes:
@@ -119,7 +75,7 @@ def build_index(file: io.BytesIO) -> np.ndarray:
     return array
 
 
-def compute_valid_window(index: int, burst: ET.Element) -> data.Window:
+def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:
     """Written by Jason Ninneman for the ASF I&A team's burst extractor.
     Using the information contained within a SAFE annotation XML burst
     element, identify the window of a burst that contains valid data.
@@ -132,7 +88,7 @@ def compute_valid_window(index: int, burst: ET.Element) -> data.Window:
         Row and column ranges for the valid data within a burst
     """
     # all offsets, even invalid offsets
-    offsets_range = data.Offset(
+    offsets_range = utils.Offset(
         np.array([int(val) for val in burst.find('firstValidSample').text.split()]),
         np.array([int(val) for val in burst.find('lastValidSample').text.split()]),
     )
@@ -142,14 +98,14 @@ def compute_valid_window(index: int, burst: ET.Element) -> data.Window:
 
     # get first and last sample with valid data per line
     # x-axis, range
-    valid_offsets_range = data.Offset(
+    valid_offsets_range = utils.Offset(
         offsets_range.start[lines_with_valid_data].min(),
         offsets_range.stop[lines_with_valid_data].max(),
     )
 
     # get the first and last line with valid data
     # y-axis, azimuth
-    valid_offsets_azimuth = data.Offset(
+    valid_offsets_azimuth = utils.Offset(
         lines_with_valid_data.min(),
         lines_with_valid_data.max(),
     )
@@ -159,7 +115,7 @@ def compute_valid_window(index: int, burst: ET.Element) -> data.Window:
     # y-length
     length_azimuth = len(lines_with_valid_data)
 
-    valid_window = data.Window(
+    valid_window = utils.Window(
         valid_offsets_range.start,
         valid_offsets_azimuth.start,
         valid_offsets_range.start + length_range,
@@ -196,14 +152,14 @@ def get_burst_annotation_data(zipped_safe_path: str, swath_path: str) -> Iterabl
     burst_shape = (n_lines, n_samples)  #  y, x for numpy
     burst_starts = [int(x.findtext('.//{*}byteOffset')) for x in burst_xmls]
     burst_lengths = burst_starts[1] - burst_starts[0]
-    burst_offsets = [data.Offset(x, x + burst_lengths) for x in burst_starts]
+    burst_offsets = [utils.Offset(x, x + burst_lengths) for x in burst_starts]
     burst_windows = [compute_valid_window(i, burst_xml) for i, burst_xml in enumerate(burst_xmls)]
     return burst_shape, burst_offsets, burst_windows
 
 
 def get_extraction_offsets(
-    swath_offset: int, index: np.ndarray, uncompressed_offsets: Iterable[data.Offset]
-) -> Iterable[data.Offset]:
+    swath_offset: int, index: np.ndarray, uncompressed_offsets: Iterable[utils.Offset]
+) -> Iterable[utils.Offset]:
     """Find the compressed location closest to the burst where zlib can begin reading
     from and return the information needed to read the desired data.
 
@@ -231,8 +187,8 @@ def get_extraction_offsets(
         stop_pair = greater_than_stop[greater_than_stop[:, 0].argmin()]
         stop_compress = stop_pair[1] + compressed_data_offset
 
-        decompress_offset = data.Offset(start_compress, stop_compress)
-        data_offset = data.Offset(
+        decompress_offset = utils.Offset(start_compress, stop_compress)
+        data_offset = utils.Offset(
             uncompressed_offset.start - start_pair[0],
             uncompressed_offset.stop - start_pair[0],
         )
@@ -242,7 +198,7 @@ def get_extraction_offsets(
     return offset_pairs
 
 
-def create_xml_metadata(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> data.XmlMetadata:
+def create_xml_metadata(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> utils.XmlMetadata:
     """Create object containing information needed to download metadata XML file from
     compressed file directly.
 
@@ -256,7 +212,7 @@ def create_xml_metadata(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> data.X
     slc_name = Path(zipped_safe_path).with_suffix('').name
     name = Path(zinfo.filename).name
     compressed_offset = get_compressed_offset(zinfo)
-    return data.XmlMetadata(name, slc_name, compressed_offset)
+    return utils.XmlMetadata(name, slc_name, compressed_offset)
 
 
 def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
@@ -276,7 +232,7 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
     return '_'.join(all_parts) + '.tiff'
 
 
-def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[data.BurstMetadata]:
+def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
     """Create objects containing information needed to download burst tiff from compressed file directly,
     and remove invalid data, for a swath tiff.
 
@@ -302,12 +258,12 @@ def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Ite
     bursts = []
     for i, (offset_pair, burst_window) in enumerate(zip(offset_pairs, burst_windows)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
-        burst = data.BurstMetadata(burst_name, slc_name, burst_shape, offset_pair[0], offset_pair[1], burst_window)
+        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, offset_pair[0], offset_pair[1], burst_window)
         bursts.append(burst)
     return bursts
 
 
-def save_as_csv(entries: Iterable[data.XmlMetadata | data.BurstMetadata], out_name: str) -> str:
+def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_name: str) -> str:
     """Save a list of metadata objects as a csv.
 
     Args:
@@ -317,7 +273,7 @@ def save_as_csv(entries: Iterable[data.XmlMetadata | data.BurstMetadata], out_na
     Returns:
         Path/name where csv was saved
     """
-    if isinstance(entries[0], data.XmlMetadata):
+    if isinstance(entries[0], utils.XmlMetadata):
         columns = ['name', 'slc', 'offset_start', 'offset_stop']
     else:
         columns = [
@@ -355,7 +311,7 @@ def index_safe(slc_name: str):
     zipped_safe_path =f'{slc_name}.zip' 
     if not Path(zipped_safe_path).exists():
         print('Downloading SLC...')
-        url = download_slc(slc_name)
+        utils.download_slc(slc_name)
     else:
         print('SLC exists locally, skipping download')
         

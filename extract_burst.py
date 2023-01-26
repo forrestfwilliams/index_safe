@@ -16,30 +16,37 @@ MB = 1024 * KB
 GB = 1024 * MB
 
 
-def calculate_range_parameters(download_start, download_stop, chunk_size=10 * MB):
-    total_size = download_stop - download_start
-    num_parts = int(math.ceil(total_size / float(chunk_size)))
-    range_params = []
-    for part_index in range(num_parts):
-        start_range = (part_index * chunk_size) + download_start
-        if part_index == num_parts - 1:
-            end_range = str(total_size + download_start)
-        else:
-            end_range = start_range + chunk_size - 1
+# def calculate_range_parameters(download_start, download_stop, chunk_size=10 * MB):
+#     total_size = download_stop - download_start
+#     num_parts = int(math.ceil(total_size / float(chunk_size)))
+#     range_params = []
+#     for part_index in range(num_parts):
+#         start_range = (part_index * chunk_size) + download_start
+#         if part_index == num_parts - 1:
+#             end_range = str(total_size + download_start)
+#         else:
+#             end_range = start_range + chunk_size - 1
+#
+#         range_params.append(f'bytes={start_range}-{end_range}')
+#     return range_params
+#
+#
+# def s3_download_multithread(client, bucket, key, metadata):
+#     range_params = calculate_range_parameters(metadata.compressed_offset.start, metadata.compressed_offset.stop)
+#
+#     # Dispatch work tasks with our client
+#     with ThreadPoolExecutor(max_workers=20) as executor:
+#         results = executor.map(s3_download, repeat(client), repeat(bucket), repeat(key), range_params)
+#
+#     content = b''.join(results)
+#     return content
 
-        range_params.append(f'bytes={start_range}-{end_range}')
-    return range_params
 
-
-def s3_download_multithread(client, bucket, key, metadata):
-    range_params = calculate_range_parameters(metadata.compressed_offset.start, metadata.compressed_offset.stop)
-
-    # Dispatch work tasks with our client
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        results = executor.map(s3_download, repeat(client), repeat(bucket), repeat(key), range_params)
-
-    content = b''.join(results)
-    return content
+def http_download(client, url, range_header):
+    resp = client.get(url, headers={'Range': range_header})
+    resp.raise_for_status()
+    body = resp.content
+    return body
 
 
 def s3_download(client, bucket, key, range_header):
@@ -48,12 +55,9 @@ def s3_download(client, bucket, key, range_header):
     return body
 
 
-def extract_bytes(client, bucket, key, metadata, multithread=False):
-    if multithread:
-        body = s3_download_multithread(client, bucket, key, metadata)
-    else:
-        range_header = f'bytes={metadata.compressed_offset.start}-{metadata.compressed_offset.stop}'
-        body = s3_download(client, bucket, key, range_header)
+def extract_bytes(client, bucket, key, metadata):
+    range_header = f'bytes={metadata.compressed_offset.start}-{metadata.compressed_offset.stop}'
+    body = http_download(client, bucket, key, range_header)
 
     body = isal_zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(body)
     burst_bytes = body[metadata.decompressed_offset.start : metadata.decompressed_offset.stop]
@@ -83,9 +87,7 @@ def row_to_burst_entry(row):
 
     window = data.Window(row['valid_x_start'], row['valid_y_start'], row['valid_x_stop'], row['valid_y_stop'])
 
-    burst_entry = data.BurstMetadata(
-        row['name'], row['slc'], shape, compressed_offset, decompressed_offset, window
-    )
+    burst_entry = data.BurstMetadata(row['name'], row['slc'], shape, compressed_offset, decompressed_offset, window)
     return burst_entry
 
 
