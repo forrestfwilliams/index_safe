@@ -1,7 +1,9 @@
 import io
+import os
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
+from argparse import ArgumentParser
 from gzip import _create_simple_gzip_header
 from pathlib import Path
 from typing import Iterable
@@ -9,6 +11,7 @@ from typing import Iterable
 import indexed_gzip as igzip
 import numpy as np
 import pandas as pd
+import requests
 from tqdm import tqdm
 
 import data
@@ -17,6 +20,49 @@ KB = 1024
 MB = 1024 * KB
 GB = 1024 * MB
 MAGIC_NUMBER = 28
+SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
+
+
+def get_download_url(scene: str) -> str:
+    """Get download url for Sentinel-1 Scene
+
+    Args:
+        scene: scene name
+    Returns:
+        Scene url
+    """
+    mission = scene[0] + scene[2]
+    product_type = scene[7:10]
+    if product_type == 'GRD':
+        product_type += '_' + scene[10] + scene[14]
+    url = f'{SENTINEL_DISTRIBUTION_URL}/{product_type}/{mission}/{scene}.zip'
+    return url
+
+
+def download_slc(scene: str, chunk_size=10 * MB) -> str:
+    """Download a file
+
+    Args:
+        url: URL of the file to download
+        directory: Directory location to place files into
+        chunk_size: Size to chunk the download into
+    Returns:
+        download_path: The path to the downloaded file
+    """
+    url = get_download_url(scene)
+    download_path = Path(url).name
+    session = requests.Session()
+    with session.get(url, stream=True) as s:
+        s.raise_for_status()
+        total = int(s.headers.get('content-length', 0))
+        with open(download_path, "wb") as f:
+            with tqdm(unit='B', unit_scale=True, unit_divisor=1024, total=total) as pbar:
+                for chunk in s.iter_content(chunk_size=chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        pbar.update(len(chunk))
+    session.close()
+    return url
 
 
 def get_compressed_offset(zinfo: zipfile.ZipInfo) -> data.Offset:
@@ -26,7 +72,8 @@ def get_compressed_offset(zinfo: zipfile.ZipInfo) -> data.Offset:
     """
     file_offset = len(zinfo.FileHeader()) + zinfo.header_offset + MAGIC_NUMBER - len(zinfo.extra)
     # FIXME - 1 is likely not correct
-    file_end = file_offset + zinfo.compress_size - 1
+    # file_end = file_offset + zinfo.compress_size - 1
+    file_end = file_offset + zinfo.compress_size
     return data.Offset(file_offset, file_end)
 
 
@@ -64,7 +111,7 @@ def build_index(file: io.BytesIO) -> np.ndarray:
         the uncompressed byte location, and
         the second is the compressed byte location.
     """
-    with igzip.IndexedGzipFile(file, spacing=5 * MB, readbuf_size=2 * GB) as f:
+    with igzip.IndexedGzipFile(file, readbuf_size=2 * GB) as f:
         f.build_full_index()
         seek_points = list(f.seek_points())
 
@@ -174,6 +221,7 @@ def get_extraction_offsets(
     compressed_data_offset = swath_offset - header_size
 
     offset_pairs = []
+    # FIXME not always producing valid zlib decompress offsets
     for uncompressed_offset in uncompressed_offsets:
         less_than_start = index[index[:, 0] < uncompressed_offset.start]
         start_pair = less_than_start[less_than_start[:, 0].argmax()]
@@ -292,19 +340,25 @@ def save_as_csv(entries: Iterable[data.XmlMetadata | data.BurstMetadata], out_na
     return out_name
 
 
-def index_safe(zipped_safe_path: str):
+def index_safe(slc_name: str):
     """Create the index and other metadata needed to directly download
     and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
     this information in csv files.
 
     Args:
-        zipped_safe_path: Path to SAFE to index
+        slc_name: Scene name to index
 
     Returns:
         No function outputs, but saves a metadata.csv and burst.csv to
         the working directory
     """
-    slc_name = Path(zipped_safe_path).with_suffix('').name
+    zipped_safe_path =f'{slc_name}.zip' 
+    if not Path(zipped_safe_path).exists():
+        print('Downloading SLC...')
+        url = download_slc(slc_name)
+    else:
+        print('SLC exists locally, skipping download')
+        
     with zipfile.ZipFile(zipped_safe_path) as f:
         tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
         xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
@@ -315,16 +369,20 @@ def index_safe(zipped_safe_path: str):
 
     print('Reading Bursts...')
     burst_metadatas = []
-    # FIXME 3 fails in index step
-    # tiffs = tiffs[0:2] + tiffs[3:]
     for tiff in tqdm(tiffs):
         burst_metadata = create_burst_metadatas(zipped_safe_path, tiff)
         burst_metadatas = burst_metadatas + burst_metadata
 
     save_as_csv(burst_metadatas, 'bursts.csv')
+    os.remove(zipped_safe_path)
+
+
+def main():
+    parser = ArgumentParser()
+    parser.add_argument('scene')
+    args = parser.parse_args()
+    index_safe(args.scene)
 
 
 if __name__ == '__main__':
-    zip_filename = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
-    out = index_safe(zip_filename)
-    print('Done!')
+    main()

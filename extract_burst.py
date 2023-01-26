@@ -114,6 +114,6 @@ def extract_burst(bucket, key, burst_name, df_file_name):
 if __name__ == '__main__':
     bucket = 'ffwilliams2-shenanigans'
     key = 'bursts/S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
-    burst = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff'
+    burst = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_1.tiff'
     df_filename = 'bursts.csv'
     extract_burst(bucket, key, burst, df_filename)
