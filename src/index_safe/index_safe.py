@@ -27,8 +27,6 @@ def get_compressed_offset(zinfo: zipfile.ZipInfo) -> utils.Offset:
     "magic number" due some strangeness in zip archive structure
     """
     file_offset = len(zinfo.FileHeader()) + zinfo.header_offset + MAGIC_NUMBER - len(zinfo.extra)
-    # FIXME - 1 is likely not correct
-    # file_end = file_offset + zinfo.compress_size - 1
     file_end = file_offset + zinfo.compress_size
     return utils.Offset(file_offset, file_end)
 
