@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-import utils
+from . import utils
 
 KB = 1024
 MB = 1024 * KB

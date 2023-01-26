@@ -9,23 +9,29 @@ not set up for random read access. This innovation is made possible by the
 implementation in Paul McCarthy's [`indexed_gzip`](https://github.com/pauldmccarthy/indexed_gzip) package.
 
 # Installation
-Install using Mamba or Conda using the command:
+Install the requirements using Mamba or Conda using the command:
 
 `mamba create -f envirnoment.yml`
 or
 `conda env create -f envirnoment.yml`
 
+Activate the environment:
+`mamba (or conda) activate bursts`
+
+Then, from within the top-level package directory, run:
+`python -m pip install -e .`
+
 # Usage
 Run `index_safe.py` Ex:
 ```bash
-index_safe.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85
+index_safe S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85
 ```
 This will create a `metadata.csv` and `bursts.csv` that contain the information needed to download the metadata/data
 directly.
 
 Then, run `extract_burst.py` Ex:
 ```bash
-extract_burst.py \
+extract_burst \
     S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85 \
     S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff \
     bursts.csv
