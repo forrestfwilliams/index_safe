@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "index_safe"
+requires-python = ">=3.8"
+authors = [
+    {name="Forrest Williams", email="ffwilliams2@alaska.edu"},
+]
+description = "Index Sentinel-1 SAFE for fast burst download"
+readme = "README.md"
+classifiers=[
+    "Intended Audience :: Science/Research",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
+dependencies = [
+  "gdal"
+  "boto3"
+  "indexed_gzip"
+  "python_isal"
+  "tqdm"
+  "numpy"
+  "pandas"
+]
+dynamic = ["version"]
+
+[project.scripts]
+index_safe = "index_safe.index_safe:main"
+extract_burst = "index_safe.extract_burst:main"
+
+[project.optional-dependencies]
+develop = [
+    "pytest",
+]
+
+[project.urls]
+Homepage = "https://github.com/forrestfwilliams/indexed_safe"
+"Bug Tracker" ="https://github.com/forrestfwilliams/indexed_safe/issues" 
+[tool.setuptools]
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
