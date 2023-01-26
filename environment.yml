@@ -1,0 +1,15 @@
+name: bursts
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python>=3.8
+  - gdal
+  - boto3
+  - indexed_gzip
+  - python_isal
+  - tqdm
+  - numpy
+  - pandas
+  # For packaging, and testing
+  - pytest
