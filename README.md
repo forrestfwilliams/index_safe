@@ -16,5 +16,17 @@ or
 `conda env create -f envirnoment.yml`
 
 # Usage
-With a Sentinel-1 SAFE stored locally, run `index_safe.py` (will add CLI soon), then with a copy of this SAFE in an
-publicly-readable bucket, run `extract_burst.py` (will add CLI soon).
+Run `index_safe.py` Ex:
+```bash
+index_safe.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85
+```
+This will create a `metadata.csv` and `bursts.csv` that contain the information needed to download the metadata/data
+directly.
+
+Then, run `extract_burst.py` Ex:
+```bash
+extract_burst.py \
+    S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85 \
+    S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff \
+    bursts.csv
+```
