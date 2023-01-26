@@ -130,8 +130,8 @@ def main():
     parser.add_argument('burst')
     parser.add_argument('df')
     args = parser.parse_args()
-    # extract_burst_http(args.burst, args.df)
-    extract_burst_s3(args.burst, args.df)
+    extract_burst_http(args.burst, args.df)
+    # extract_burst_s3(args.burst, args.df)
 
 
 if __name__ == '__main__':
