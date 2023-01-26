@@ -1,4 +1,4 @@
-# indexed_safe
+# index_safe
 A set of Python utilities for downloading Sentinel-1 Burst data and metadata via S3 with minimal `GET` requests and data
 download:
 
