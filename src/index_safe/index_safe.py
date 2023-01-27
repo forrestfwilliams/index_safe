@@ -42,16 +42,16 @@ def wrap_as_gz(payload: bytes, zinfo: zipfile.ZipInfo) -> bytes:
     Returns:
         {10-byte header}DEFLATE_PAYLOAD{CRC}{filesize % 2**32}
     """
-    header = _create_simple_gzip_header(1)
-    trailer = struct.pack("<LL", zinfo.CRC, (zinfo.file_size & 0xFFFFFFFF))
     # Martin Durant's method
     # header = b"\x1f\x8b\x08\x00" + b"\x00\x00\x00\x00" + b"\x00\xff"
     # trailer = zinfo.CRC.to_bytes(4, "little") + (zinfo.file_size % 2**32).to_bytes(4, "little")
+    header = _create_simple_gzip_header(1)
+    trailer = struct.pack("<LL", zinfo.CRC, (zinfo.file_size & 0xFFFFFFFF))
     gz_wrapped = header + payload + trailer
     return gz_wrapped
 
 
-def build_index(file: io.BytesIO) -> np.ndarray:
+def build_index(file: io.BytesIO, save: bool = False) -> np.ndarray:
     """Using the indexed_gzip library, identify
     seek points within an in-memory gzip file
     that are valid locations to decompress from
@@ -73,6 +73,9 @@ def build_index(file: io.BytesIO) -> np.ndarray:
         seek_points = list(f.seek_points())
 
     array = np.array(seek_points)
+    if save:
+        import pandas as pd
+        pd.DataFrame(array, columns=['uncompressed', 'compressed']).to_csv('seek_points.csv', index=False)
     return array
 
 
@@ -176,7 +179,8 @@ def get_extraction_offsets(
     first_entry = index[index[:, 0].argmin()]
     header_size = first_entry[1] - first_entry[0]
     compressed_data_offset = swath_offset - header_size
-
+    
+    print(f'Swath offset is {swath_offset}')
     offset_pairs = []
     # FIXME not always producing valid zlib decompress offsets
     for uncompressed_offset in uncompressed_offsets:
@@ -245,7 +249,6 @@ def create_burst_metadatas(zipped_safe_path: str, zinfo: utils.OffsetZipInfo) ->
         BurstMetadata objects containing information needed to download and remove invalid data
     """
     slc_name = Path(zipped_safe_path).with_suffix('').name
-    # swath_offset = get_compressed_offset(zinfo)
     swath_offset = zinfo.compressed_offset
     with open(zipped_safe_path, 'rb') as f:
         f.seek(swath_offset.start)
