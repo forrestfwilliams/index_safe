@@ -196,7 +196,7 @@ def get_extraction_offsets(
     return offset_pairs
 
 
-def create_xml_metadata(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> utils.XmlMetadata:
+def create_xml_metadata(zipped_safe_path: str, zinfo: utils.OffsetZipInfo) -> utils.XmlMetadata:
     """Create object containing information needed to download metadata XML file from
     compressed file directly.
 
@@ -209,8 +209,8 @@ def create_xml_metadata(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> utils.
     """
     slc_name = Path(zipped_safe_path).with_suffix('').name
     name = Path(zinfo.filename).name
-    compressed_offset = get_compressed_offset(zinfo)
-    return utils.XmlMetadata(name, slc_name, compressed_offset)
+    # compressed_offset = get_compressed_offset(zinfo)
+    return utils.XmlMetadata(name, slc_name, zinfo.compressed_offset)
 
 
 def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
@@ -230,7 +230,7 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
     return '_'.join(all_parts) + '.tiff'
 
 
-def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
+def create_burst_metadatas(zipped_safe_path: str, zinfo: utils.OffsetZipInfo) -> Iterable[utils.BurstMetadata]:
     """Create objects containing information needed to download burst tiff from compressed file directly,
     and remove invalid data, for a swath tiff.
 
@@ -242,7 +242,8 @@ def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Ite
         BurstMetadata objects containing information needed to download and remove invalid data
     """
     slc_name = Path(zipped_safe_path).with_suffix('').name
-    swath_offset = get_compressed_offset(zinfo)
+    # swath_offset = get_compressed_offset(zinfo)
+    swath_offset = zinfo.compressed_offset
     with open(zipped_safe_path, 'rb') as f:
         f.seek(swath_offset.start)
         deflate_content = f.read(swath_offset.stop - swath_offset.start)
@@ -317,6 +318,9 @@ def index_safe(slc_name: str, keep: bool = True):
     with zipfile.ZipFile(zipped_safe_path) as f:
         tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
         xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
+
+    tiffs = [utils.OffsetZipInfo(zipped_safe_path, x) for x in tiffs]
+    xmls = [utils.OffsetZipInfo(zipped_safe_path, x) for x in tiffs]
 
     print('Reading XMLs...')
     xml_metadatas = [create_xml_metadata(slc_name, x) for x in tqdm(xmls)]

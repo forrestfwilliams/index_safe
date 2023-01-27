@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from typing import Iterable
 from pathlib import Path
+from typing import Iterable
+import zipfile
 
 import requests
 from tqdm import tqdm
@@ -61,6 +62,30 @@ class XmlMetadata:
 
     def to_tuple(self):
         return (self.name, self.slc, self.offset.start, self.offset.stop)
+
+
+class OffsetZipInfo:
+    def __init__(self, zip_path: str, zinfo: zipfile.ZipInfo):
+        self.zip_path: str = zip_path
+        self.header_offset: int = zinfo.header_offset
+        self.compress_size: int = zinfo.compress_size
+        self.file_size: int = zinfo.file_size
+        self.filename: str = zinfo.filename
+        self.CRC: bytes = zinfo.CRC
+        self.compressed_offset: Offset = self.get_compressed_offset()
+        self.zinfo = zinfo
+
+    def get_compressed_offset(self) -> Offset:
+        with open(self.zip_path, 'rb') as f:
+            f.seek(self.header_offset)
+            data = f.read(30)
+
+        n = int.from_bytes(data[26:28], "little")
+        m = int.from_bytes(data[28:30], "little")
+
+        data_start = self.header_offset + n + m + 30
+        data_stop = data_start + self.compress_size
+        return Offset(data_start, data_stop)
 
 
 def get_download_url(scene: str) -> str:
