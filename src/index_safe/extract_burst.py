@@ -33,8 +33,9 @@ def extract_bytes_s3(client: botocore.client, bucket: str, key: str, metadata: u
     range_header = f'bytes={metadata.compressed_offset.start}-{metadata.compressed_offset.stop}'
     body = s3_download(client, bucket, key, range_header)
 
-    body = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(body)
-    burst_bytes = body[metadata.decompressed_offset.start : metadata.decompressed_offset.stop]
+    body = zlib.decompressobj(-1 * MAX_WBITS).decompress(body)
+    # utils.Offset properties are end inclusive, unlike python indexes
+    burst_bytes = body[metadata.decompressed_offset.start : metadata.decompressed_offset.stop + 1]
 
     return burst_bytes
 
@@ -52,7 +53,8 @@ def extract_bytes_http(url: str, metadata: utils.BurstMetadata) -> bytes:
     body = http_download(url, range_header)
 
     body = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(body)
-    burst_bytes = body[metadata.decompressed_offset.start : metadata.decompressed_offset.stop]
+    # utils.Offset properties are end inclusive, unlike python indexes so need to + 1
+    burst_bytes = body[metadata.decompressed_offset.start : metadata.decompressed_offset.stop + 1]
 
     return burst_bytes
 
@@ -67,6 +69,7 @@ def burst_bytes_to_numpy(burst_bytes: bytes, shape: Iterable[int]) -> np.ndarray
 
 def invalid_to_nodata(array: np.ndarray, valid_window: utils.Window, nodata_value: int = 0) -> np.ndarray:
     is_not_valid = np.ones(array.shape).astype(bool)
+    is_not_valid[valid_window.ystart:valid_window.yend, valid_window.xstart:valid_window.xend] = False
     array[is_not_valid] = nodata_value
     return array
 

@@ -44,6 +44,9 @@ def wrap_as_gz(payload: bytes, zinfo: zipfile.ZipInfo) -> bytes:
     """
     header = _create_simple_gzip_header(1)
     trailer = struct.pack("<LL", zinfo.CRC, (zinfo.file_size & 0xFFFFFFFF))
+    # Martin Durant's method
+    # header = b"\x1f\x8b\x08\x00" + b"\x00\x00\x00\x00" + b"\x00\xff"
+    # trailer = zinfo.CRC.to_bytes(4, "little") + (zinfo.file_size % 2**32).to_bytes(4, "little")
     gz_wrapped = header + payload + trailer
     return gz_wrapped
 
@@ -149,7 +152,7 @@ def get_burst_annotation_data(zipped_safe_path: str, swath_path: str) -> Iterabl
     n_samples = int(xml.findtext('.//{*}samplesPerBurst'))
     burst_shape = (n_lines, n_samples)  #  y, x for numpy
     burst_starts = [int(x.findtext('.//{*}byteOffset')) for x in burst_xmls]
-    burst_lengths = burst_starts[1] - burst_starts[0]
+    burst_lengths = burst_starts[1] - burst_starts[0] - 1
     burst_offsets = [utils.Offset(x, x + burst_lengths) for x in burst_starts]
     burst_windows = [compute_valid_window(i, burst_xml) for i, burst_xml in enumerate(burst_xmls)]
     return burst_shape, burst_offsets, burst_windows

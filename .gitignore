@@ -1,3 +1,4 @@
 __pycache__/*
-src/index_safe.egg-info/*
+tests/__pycache__/*
 src/index_safe/__pycache__/*
+src/index_safe.egg-info/*
