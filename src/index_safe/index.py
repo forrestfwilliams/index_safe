@@ -12,6 +12,8 @@ def create_gzidx(gz_path):
         f.build_full_index()
         f.export_index(out_path)
 
+    return out_path
+
 
 def parse_gzidx(fobj):
     header = fobj.read(35)
@@ -60,11 +62,3 @@ def build_gzidx(input_gzidx_path, output_gzidx_path, points):
         fobj.write(out_gzidx)
 
     return output_gzidx_path
-
-
-if __name__ == '__main__':
-    compressed_file = '../../tests/s1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gz'
-    uncompressed_file = '../../tests/s1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff'
-    index = 'out.gzidx'
-
-    parse_gzidx(compressed_file)
