@@ -5,10 +5,10 @@ import indexed_gzip as igzip
 import numpy as np
 
 
-def create_gzidx(gz_path):
+def create_gzidx(gz_path, spacing=2**18):
     out_path = Path(gz_path).with_suffix('.gzidx')
 
-    with igzip.IndexedGzipFile(gz_path, spacing=int(4194304 / 8)) as f:
+    with igzip.IndexedGzipFile(gz_path, spacing=spacing) as f:
         f.build_full_index()
         f.export_index(out_path)
 
@@ -62,3 +62,8 @@ def build_gzidx(input_gzidx_path, output_gzidx_path, points):
         fobj.write(out_gzidx)
 
     return output_gzidx_path
+
+if __name__ == '__main__':
+    gz_path = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gz'
+    gzidx_path = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gzidx'
+    create_gzidx(gz_path, 2**16)
