@@ -23,7 +23,6 @@ def parse_gzidx(fobj):
     fobj.seek(0)
     return parsed
 
-
 def build_gzidx(input_gzidx_path, output_gzidx_path, points):
     header_length = 35
     point_size = 18
