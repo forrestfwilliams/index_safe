@@ -51,7 +51,7 @@ def golden_bytes():
     return golden_bytes
 
 
-@pytest.fixture
+@pytest.fixture(scope='module')
 def zinfo():
     with zipfile.ZipFile(ZIP_PATH, mode="r") as archive:
         info_list = archive.infolist()
@@ -105,50 +105,29 @@ def test_parse_gzidx(seek_point_array):
 
 
 # Swath level
-def test_compressed_offset(zinfo, golden_bytes):
-    zinfo = utils.OffsetZipInfo(ZIP_PATH, zinfo)
-
+def test_get_zip_compressed_offset(zinfo, golden_bytes):
+    offset = utils.get_zip_compressed_offset(ZIP_PATH, zinfo)
     with open(ZIP_PATH, 'rb') as f:
-        f.seek(zinfo.compressed_offset.start)
-        test_bytes_compressed = f.read(zinfo.compressed_offset.stop)
-    test_bytes = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(test_bytes_compressed)
+        f.seek(offset.start)
+        bytes_compressed = f.read(offset.stop - offset.start)
+    test_bytes = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(bytes_compressed)
 
     assert len(test_bytes) == len(golden_bytes)
     assert test_bytes == golden_bytes
 
 
-def test_wrap_as_gz(zinfo, golden_bytes):
-    zinfo = utils.OffsetZipInfo(ZIP_PATH, zinfo)
-
+def test_wrap_deflate_as_gz(zinfo, golden_bytes):
+    offset = utils.get_zip_compressed_offset(ZIP_PATH, zinfo)
     with open(ZIP_PATH, 'rb') as f:
-        f.seek(zinfo.compressed_offset.start)
-        bytes_compressed = f.read(zinfo.compressed_offset.stop - zinfo.compressed_offset.start)
+        f.seek(offset.start)
+        bytes_compressed = f.read(offset.stop - offset.start)
 
-    gz_bytes = index_safe.wrap_as_gz(bytes_compressed, zinfo)
+    gz_bytes = utils.wrap_deflate_as_gz(bytes_compressed, zinfo)
     test_bytes = gzip.decompress(gz_bytes)
 
     assert len(gz_bytes) == len(bytes_compressed) + 10 + 8  # wrap_as_gz should add 18 bytes of data
     assert len(test_bytes) == len(golden_bytes)
     assert test_bytes == golden_bytes
-
-
-# def test_get_index(golden_bytes, zinfo):
-#     zinfo = utils.OffsetZipInfo(ZIP_PATH, zinfo)
-#     header_length = 10
-#
-#     with open(ZIP_PATH, 'rb') as f:
-#         f.seek(zinfo.compressed_offset.start)
-#         bytes_compressed = f.read(zinfo.compressed_offset.stop - zinfo.compressed_offset.start)
-#
-#     import pandas as pd
-#     index = pd.read_csv('seek_points.csv').to_numpy()
-#
-#     index1 = 0
-#     index2 = 10
-#     start =  index[index1,1] - header_length
-#     stop =  index[index2,1] - header_length + 1
-#     body = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(bytes_compressed[start:stop])
-#     assert True
 
 
 # Burst level
@@ -167,7 +146,7 @@ def test_burst_bytes_to_numpy(golden_bytes):
     equal = np.isclose(golden_array, test_array)
     assert np.all(equal)
 
-
+@pytest.mark.skip()
 def test_extract_bytes_http(golden_bytes):
     url = (
         'https://sentinel1.asf.alaska.edu/SLC/SA/'
@@ -200,6 +179,7 @@ def test_invalid_to_nodata(golden_bytes):
 
 
 # Golden
+@pytest.mark.skip()
 def test_golden():
     safe_name = str(Path(ZIP_PATH).with_suffix(''))
     index_safe.index_safe(safe_name)

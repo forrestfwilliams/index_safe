@@ -1,10 +1,8 @@
 import io
 import os
-import struct
 import xml.etree.ElementTree as ET
 import zipfile
 from argparse import ArgumentParser
-from gzip import _create_simple_gzip_header
 from pathlib import Path
 from typing import Iterable
 
@@ -18,37 +16,6 @@ from . import utils
 KB = 1024
 MB = 1024 * KB
 GB = 1024 * MB
-MAGIC_NUMBER = 28
-
-
-def get_compressed_offset(zinfo: zipfile.ZipInfo) -> utils.Offset:
-    """Get the byte offset (beginning byte and end byte inclusive)
-    for a member of a zip archive. Currently relies on a
-    "magic number" due some strangeness in zip archive structure
-    """
-    file_offset = len(zinfo.FileHeader()) + zinfo.header_offset + MAGIC_NUMBER - len(zinfo.extra)
-    file_end = file_offset + zinfo.compress_size
-    return utils.Offset(file_offset, file_end)
-
-
-def wrap_as_gz(payload: bytes, zinfo: zipfile.ZipInfo) -> bytes:
-    """Add a GZIP-style header and footer to a raw DEFLATE byte
-    object based on information from a ZipInfo object.
-
-    Args:
-        payload: raw DEFLATE bytes (no header or footer)
-        zinfo: the ZipInfo object associated with the payload
-
-    Returns:
-        {10-byte header}DEFLATE_PAYLOAD{CRC}{filesize % 2**32}
-    """
-    # Martin Durant's method
-    # header = b"\x1f\x8b\x08\x00" + b"\x00\x00\x00\x00" + b"\x00\xff"
-    # trailer = zinfo.CRC.to_bytes(4, "little") + (zinfo.file_size % 2**32).to_bytes(4, "little")
-    header = _create_simple_gzip_header(1)
-    trailer = struct.pack("<LL", zinfo.CRC, (zinfo.file_size & 0xFFFFFFFF))
-    gz_wrapped = header + payload + trailer
-    return gz_wrapped
 
 
 def build_index(file: io.BytesIO, save: bool = False) -> np.ndarray:
