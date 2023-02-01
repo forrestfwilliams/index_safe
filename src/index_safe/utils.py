@@ -39,7 +39,6 @@ class BurstMetadata:
     slc: str
     shape: Iterable[int]  # n_row, n_column
     compressed_offset: Offset
-    decompressed_offset: Offset
     valid_window: Window
 
     def to_tuple(self):
@@ -50,8 +49,6 @@ class BurstMetadata:
             self.shape[1],
             self.compressed_offset.start,
             self.compressed_offset.stop,
-            self.decompressed_offset.start,
-            self.decompressed_offset.stop,
             self.valid_window.xstart,
             self.valid_window.xend,
             self.valid_window.ystart,
@@ -70,28 +67,28 @@ class XmlMetadata:
         return (self.name, self.slc, self.offset.start, self.offset.stop)
 
 
-class OffsetZipInfo:
-    def __init__(self, zip_path: str, zinfo: zipfile.ZipInfo):
-        self.zip_path: str = zip_path
-        self.header_offset: int = zinfo.header_offset
-        self.compress_size: int = zinfo.compress_size
-        self.file_size: int = zinfo.file_size
-        self.filename: str = zinfo.filename
-        self.CRC: bytes = zinfo.CRC
-        self.compressed_offset: Offset = self.get_compressed_offset()
-        self.zinfo = zinfo
-
-    def get_compressed_offset(self) -> Offset:
-        with open(self.zip_path, 'rb') as f:
-            f.seek(self.header_offset)
-            data = f.read(30)
-
-        n = int.from_bytes(data[26:28], "little")
-        m = int.from_bytes(data[28:30], "little")
-
-        data_start = self.header_offset + n + m + 30
-        data_stop = data_start + self.compress_size
-        return Offset(data_start, data_stop)
+# class OffsetZipInfo:
+#     def __init__(self, zip_path: str, zinfo: zipfile.ZipInfo):
+#         self.zip_path: str = zip_path
+#         self.header_offset: int = zinfo.header_offset
+#         self.compress_size: int = zinfo.compress_size
+#         self.file_size: int = zinfo.file_size
+#         self.filename: str = zinfo.filename
+#         self.CRC: bytes = zinfo.CRC
+#         self.compressed_offset: Offset = self.get_compressed_offset()
+#         self.zinfo = zinfo
+#
+#     def get_compressed_offset(self) -> Offset:
+#         with open(self.zip_path, 'rb') as f:
+#             f.seek(self.header_offset)
+#             data = f.read(30)
+#
+#         n = int.from_bytes(data[26:28], "little")
+#         m = int.from_bytes(data[28:30], "little")
+#
+#         data_start = self.header_offset + n + m + 30
+#         data_stop = data_start + self.compress_size
+#         return Offset(data_start, data_stop)
 
 
 def wrap_deflate_as_gz(payload: bytes, zinfo: zipfile.ZipInfo) -> bytes:
@@ -155,7 +152,7 @@ class ZipIndexer:
         points = np.array([struct.unpack('<QQBB', raw_points[18 * i : 18 * (i + 1)]) for i in range(n_points)])
         return points, n_points, window_size
 
-    def create_base_gzidx(self, member_name: str) -> Iterable[bytes, Offset]:
+    def create_base_gzidx(self, member_name: str) -> Iterable:
         with zipfile.ZipFile(self.zip_path) as f:
             zinfo = [x for x in f.infolist() if member_name in x.filename][0]
 
