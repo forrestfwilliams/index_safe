@@ -9,7 +9,8 @@ import numpy as np
 
 from index_safe import index_safe, utils
 
-ZIP_PATH = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
+GZIDX_HEADER_LENGTH = 35
+GZIDX_POINT_LENGTH = 18
 
 
 def create_gzidx(gz_path, spacing=2**20):
@@ -25,26 +26,21 @@ def create_gzidx(gz_path, spacing=2**20):
 def parse_gzidx(fobj):
     header = fobj.read(35)
     n_points = struct.unpack('<I', header[31:])[0]
+    window_size = struct.unpack('<I', header[27:31])[0]
     raw_points = fobj.read(n_points * 18)
     parsed = np.array([struct.unpack('<QQBB', raw_points[18 * i : 18 * (i + 1)]) for i in range(n_points)])
     fobj.seek(0)
-    return parsed
+    return parsed, n_points, window_size
 
 
 def build_gzidx(input_gzidx_path, output_gzidx_path, points=None, filesize=None, compressed_offset=0):
-    header_length = 35
-    point_size = 18
-
     with open(input_gzidx_path, 'rb') as fobj:
-        array = parse_gzidx(fobj)
+        array, n_points, window_size = parse_gzidx(fobj)
         data = fobj.read()
 
-    window_size = struct.unpack('<I', data[27:31])[0]
-    n_points = struct.unpack('<I', data[31:35])[0]
-    points_length = point_size * n_points
-
     # FIXME Assume only first window entry is zero
-    window_offsets = np.arange(0, array[1:].shape[0] * window_size, window_size) + header_length + points_length
+    length_to_window = GZIDX_HEADER_LENGTH + (GZIDX_POINT_LENGTH * n_points)
+    window_offsets = np.arange(0, array[1:].shape[0] * window_size, window_size) + length_to_window
     window_offsets = np.append([0], window_offsets, axis=0)
 
     array = np.append(array, np.expand_dims(window_offsets, axis=1), axis=1)
@@ -64,7 +60,7 @@ def build_gzidx(input_gzidx_path, output_gzidx_path, points=None, filesize=None,
 
         point_bytes.append(point_entry)
         window_bytes.append(window_entry)
-    
+
     if filesize:
         filesize_bytes = struct.pack('<Q', filesize)
     else:
@@ -85,7 +81,7 @@ def create_gzidx_for_zip_member(zip_path, member_name, out_path):
 
     offset_zinfo = utils.OffsetZipInfo(zip_path, zinfo)
     offset = offset_zinfo.get_compressed_offset()
-    archive_size = Path(ZIP_PATH).stat().st_size
+    archive_size = Path(zip_path).stat().st_size
 
     with open(zip_path, 'rb') as f:
         f.seek(offset.start)

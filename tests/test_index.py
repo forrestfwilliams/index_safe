@@ -1,4 +1,3 @@
-import io
 import tempfile
 import zipfile
 from pathlib import Path
@@ -7,7 +6,7 @@ import indexed_gzip as igzip
 import numpy as np
 import pytest
 
-from index_safe import index, index_safe, utils
+from index_safe import index
 
 GZ_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gz'
 GZIDX_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gzidx'
@@ -33,12 +32,13 @@ def seek_point_array():
 
 def test_parse_gzidx(seek_point_array):
     with open(GZIDX_PATH, 'rb') as f:
-        test_array = index.parse_gzidx(f)
+        test_array, n_points, _ = index.parse_gzidx(f)
     assert np.all(test_array[:, [1, 0]] == seek_point_array)
+    assert n_points == seek_point_array.shape[0]
 
 
 def test_build_gzidx(seek_point_array):
-    points = [10,15]
+    points = [10, 15]
     points_compressed = seek_point_array[points, 1].tolist()
     points_uncompressed = seek_point_array[points, 0].tolist()
 
@@ -67,7 +67,6 @@ def test_create_gzidx_for_zip_member():
         with f.open(zinfo.filename, 'r') as member:
             member.seek(start)
             golden = member.read(length)
-
 
     tmp = tempfile.NamedTemporaryFile()
     index.create_gzidx_for_zip_member(ZIP_PATH, TIFF_PATH, tmp.name)
