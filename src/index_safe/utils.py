@@ -1,8 +1,14 @@
+import io
+import struct
+import tempfile
+import zipfile
 from dataclasses import dataclass
+from gzip import _create_simple_gzip_header
 from pathlib import Path
 from typing import Iterable
-import zipfile
 
+import indexed_gzip as igzip
+import numpy as np
 import requests
 from tqdm import tqdm
 
@@ -86,6 +92,108 @@ class OffsetZipInfo:
         data_start = self.header_offset + n + m + 30
         data_stop = data_start + self.compress_size
         return Offset(data_start, data_stop)
+
+
+class ZipIndexer:
+    def __init__(self, zip_path, spacing=2**20):
+        self.zip_path = zip_path
+        self.archive_size = Path(self.zip_path).stat().st_size
+        self.gz_header_length = 10
+        self.spacing = spacing
+        self.gzidx_header_length = 35
+        self.gzidx_point_length = 18
+
+    def parse_gzidx(self, gzidx):
+        header = gzidx[:35]
+        n_points = struct.unpack('<I', header[31:])[0]
+        window_size = struct.unpack('<I', header[27:31])[0]
+        raw_points = gzidx[35 : 35 + n_points * 18]
+        points = np.array([struct.unpack('<QQBB', raw_points[18 * i : 18 * (i + 1)]) for i in range(n_points)])
+        return points, n_points, window_size
+
+    def get_compressed_offset(self, zinfo) -> Offset:
+        with open(self.zip_path, 'rb') as f:
+            f.seek(zinfo.header_offset)
+            data = f.read(30)
+
+        n = int.from_bytes(data[26:28], "little")
+        m = int.from_bytes(data[28:30], "little")
+
+        data_start = zinfo.header_offset + n + m + 30
+        data_stop = data_start + zinfo.compress_size
+        return Offset(data_start, data_stop)
+
+    def wrap_as_gz(self, payload: bytes, zinfo: zipfile.ZipInfo) -> bytes:
+        """Add a GZIP-style header and footer to a raw DEFLATE byte
+        object based on information from a ZipInfo object.
+
+        Args:
+            payload: raw DEFLATE bytes (no header or footer)
+            zinfo: the ZipInfo object associated with the payload
+
+        Returns:
+            {10-byte header}DEFLATE_PAYLOAD{CRC}{filesize % 2**32}
+        """
+        header = _create_simple_gzip_header(1)
+        trailer = struct.pack("<LL", zinfo.CRC, (zinfo.file_size & 0xFFFFFFFF))
+        gz_wrapped = header + payload + trailer
+        return gz_wrapped
+
+    def create_base_gzidx(self, member_name):
+        with zipfile.ZipFile(self.zip_path) as f:
+            zinfo = [x for x in f.infolist() if member_name in x.filename][0]
+
+        offset = self.get_compressed_offset(zinfo)
+        with open(self.zip_path, 'rb') as f:
+            f.seek(offset.start)
+            body = f.read(offset.stop - offset.start)
+        gz_body = self.wrap_as_gz(body, zinfo)
+
+        with tempfile.NamedTemporaryFile() as tmp_gzidx:
+            with igzip.IndexedGzipFile(io.BytesIO(gz_body), spacing=self.spacing) as f:
+                f.build_full_index()
+                f.export_index(tmp_gzidx.name)
+
+            with open(tmp_gzidx.name, 'rb') as f:
+                base_gzidx = f.read()
+
+        return base_gzidx, offset
+
+    def build_gzidx(self, member_name, gzidx_path, points=None):
+        base_gzidx, offset = self.create_base_gzidx(member_name)
+        point_array, n_points, window_size = self.parse_gzidx(base_gzidx)
+
+        # FIXME Assume only first window entry is zero
+        length_to_window = self.gzidx_header_length + (self.gzidx_point_length * n_points)
+        window_offsets = np.arange(0, point_array[1:].shape[0] * window_size, window_size) + length_to_window
+        window_offsets = np.append([0], window_offsets, axis=0)
+
+        point_array = np.append(point_array, np.expand_dims(window_offsets, axis=1), axis=1)
+        if points:
+            point_array = point_array[np.isin(point_array[:, 0], points), :].copy()
+        point_array[:, 0] += (offset.start - self.gz_header_length)
+
+        point_bytes = []
+        window_bytes = []
+        for row in point_array:
+            point_entry = struct.pack('<QQBB', *row[:4].tolist())
+
+            if row[4] == 0:
+                window_entry = b''
+            else:
+                window_entry = base_gzidx[row[4] : row[4] + window_size]
+
+            point_bytes.append(point_entry)
+            window_bytes.append(window_entry)
+
+        archive_size_bytes = struct.pack('<Q', self.archive_size)
+
+        header = base_gzidx[:7] + archive_size_bytes + base_gzidx[15:31] + struct.pack('<I', point_array.shape[0])
+        altered_gzidx = header + b''.join(point_bytes) + b''.join(window_bytes)
+
+        with open(gzidx_path, 'wb') as fobj:
+            fobj.write(altered_gzidx)
+        return gzidx_path
 
 
 def get_download_url(scene: str) -> str:

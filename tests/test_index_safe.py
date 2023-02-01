@@ -1,8 +1,10 @@
 import gzip
+import tempfile
 import zipfile
 import zlib
 from pathlib import Path
 
+import indexed_gzip as igzip
 import numpy as np
 import pytest
 from osgeo import gdal
@@ -26,6 +28,9 @@ TIFF_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.ti
 BURST_RAW_PATH = 'raw_01.slc.vrt'
 BURST_VALID_PATH = 'valid_01.slc.vrt'
 TEST_BURST_NAME = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff'
+
+GZIDX_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gzidx'
+GZ_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gz'
 
 
 def load_geotiff(infile, band=1):
@@ -52,6 +57,51 @@ def zinfo():
         info_list = archive.infolist()
         zinfo = [x for x in info_list if TIFF_PATH in x.filename][0]
     return zinfo
+
+
+@pytest.fixture(scope='module')
+def seek_point_array():
+    if not Path(GZIDX_PATH).exists():
+        print('Creating full gzidx')
+        with igzip.IndexedGzipFile(GZ_PATH, spacing=2**22) as f:
+            f.build_full_index()
+            f.export_index(GZIDX_PATH)
+
+    with igzip.IndexedGzipFile(GZ_PATH, spacing=2**22) as f:
+        f.import_index(GZIDX_PATH)
+        seek_points = list(f.seek_points())
+    array = np.array(seek_points)
+
+    return array
+
+
+def test_zip_indexer():
+    start = 10
+    length = 15
+
+    with zipfile.ZipFile(ZIP_PATH) as f:
+        zinfo = [x for x in f.infolist() if TIFF_PATH in Path(x.filename).name][0]
+        with f.open(zinfo.filename, 'r') as member:
+            member.seek(start)
+            golden = member.read(length)
+
+    with tempfile.NamedTemporaryFile() as tmp:
+        zip_indexer = utils.ZipIndexer(ZIP_PATH)
+        zip_indexer.build_gzidx(TIFF_PATH, tmp.name)
+        with igzip.IndexedGzipFile(ZIP_PATH, skip_crc_check=True) as f:
+            f.import_index(tmp.name)
+            f.seek(start)
+            test = f.read(length)
+
+    assert golden == test
+
+
+def test_parse_gzidx(seek_point_array):
+    zip_indexer = utils.ZipIndexer(ZIP_PATH)
+    with open(GZIDX_PATH, 'rb') as f:
+        test_array, n_points, _ = zip_indexer.parse_gzidx(f.read())
+    assert np.all(test_array[:, [1, 0]] == seek_point_array)
+    assert n_points == seek_point_array.shape[0]
 
 
 # Swath level
