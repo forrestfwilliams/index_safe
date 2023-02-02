@@ -1,8 +1,11 @@
 from argparse import ArgumentParser
+from pathlib import Path
 from typing import Iterable
 
 import boto3
 import botocore
+import fsspec
+import indexed_gzip as igzip
 import numpy as np
 import pandas as pd
 import requests
@@ -59,6 +62,18 @@ def extract_bytes_http(url: str, metadata: utils.BurstMetadata) -> bytes:
     return burst_bytes
 
 
+def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata) -> bytes:
+    gzidx_name = Path(metadata.base_tiff).with_suffix('.gzidx').name
+    url = f'https://ffwilliams2-shenanigans.s3.us-west-2.amazonaws.com/bursts/{Path(url).name}'
+    https_fs = fsspec.filesystem("https")
+    zip_fobj = https_fs.open(url)
+    with igzip.IndexedGzipFile(zip_fobj) as igzip_fobj:
+        igzip_fobj.import_index(gzidx_name)
+        igzip_fobj.seek(metadata.uncompressed_offset.start)
+        burst_bytes = igzip_fobj.read(metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start)
+    return burst_bytes
+
+
 def burst_bytes_to_numpy(burst_bytes: bytes, shape: Iterable[int]) -> np.ndarray:
     tmp_array = np.frombuffer(burst_bytes, dtype=np.int16).astype(float)
     array = tmp_array.copy()
@@ -69,19 +84,18 @@ def burst_bytes_to_numpy(burst_bytes: bytes, shape: Iterable[int]) -> np.ndarray
 
 def invalid_to_nodata(array: np.ndarray, valid_window: utils.Window, nodata_value: int = 0) -> np.ndarray:
     is_not_valid = np.ones(array.shape).astype(bool)
-    is_not_valid[valid_window.ystart:valid_window.yend, valid_window.xstart:valid_window.xend] = False
+    is_not_valid[valid_window.ystart : valid_window.yend, valid_window.xstart : valid_window.xend] = False
     array[is_not_valid] = nodata_value
     return array
 
 
 def row_to_burst_entry(row: pd.Series) -> utils.BurstMetadata:
     shape = (row['n_rows'], row['n_columns'])
-    compressed_offset = utils.Offset(row['download_start'], row['download_stop'])
     decompressed_offset = utils.Offset(row['offset_start'], row['offset_stop'])
 
     window = utils.Window(row['valid_x_start'], row['valid_y_start'], row['valid_x_stop'], row['valid_y_stop'])
 
-    burst_entry = utils.BurstMetadata(row['name'], row['slc'], shape, compressed_offset, decompressed_offset, window)
+    burst_entry = utils.BurstMetadata(row['name'], row['base_tiff'], row['slc'], shape, decompressed_offset, window)
     return burst_entry
 
 
@@ -122,6 +136,19 @@ def extract_burst_http(burst_name: str, df_file_name: str) -> str:
     return out_name
 
 
+def extract_burst_fsspec(burst_name: str, df_file_name: str) -> str:
+    df = pd.read_csv(df_file_name)
+    single_burst = df.loc[df.name == burst_name].squeeze()
+    burst_metadata = row_to_burst_entry(single_burst)
+
+    url = utils.get_download_url(single_burst['slc'])
+    burst_bytes = extract_bytes_fsspec(url, burst_metadata)
+    burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
+    burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
+    out_name = array_to_raster(burst_name, burst_array)
+    return out_name
+
+
 def main():
     """Example Command:
 
@@ -133,7 +160,8 @@ def main():
     parser.add_argument('burst')
     parser.add_argument('df')
     args = parser.parse_args()
-    extract_burst_http(args.burst, args.df)
+    extract_burst_fsspec(args.burst, args.df)
+    # extract_burst_http(args.burst, args.df)
     # extract_burst_s3(args.burst, args.df)
 
 

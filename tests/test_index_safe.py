@@ -25,9 +25,10 @@ BURST_STOP = BURST0_STOP
 ZIP_PATH = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
 TIFF_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff'
 
-BURST_RAW_PATH = 'raw_01.slc.vrt'
-BURST_VALID_PATH = 'valid_01.slc.vrt'
-TEST_BURST_NAME = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff'
+BURST_NUMBER = 7
+BURST_RAW_PATH = f'raw_0{BURST_NUMBER + 1}.slc.vrt'
+BURST_VALID_PATH = f'valid_0{BURST_NUMBER + 1}.slc.vrt'
+TEST_BURST_NAME = f'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_{BURST_NUMBER}.tiff'
 
 GZIDX_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gzidx'
 GZ_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gz'
@@ -146,6 +147,7 @@ def test_burst_bytes_to_numpy(golden_bytes):
     equal = np.isclose(golden_array, test_array)
     assert np.all(equal)
 
+
 @pytest.mark.skip()
 def test_extract_bytes_http(golden_bytes):
     url = (
@@ -177,20 +179,22 @@ def test_invalid_to_nodata(golden_bytes):
     equal = np.isclose(valid_data, burst_array)
     assert np.all(equal)
 
+
 def test_get_closest_index():
-    array = np.arange(0,105,5)
+    array = np.arange(0, 105, 5)
     value = 14
     less_than = utils.get_closest_index(array, value)
     assert less_than == 2
     greater_than = utils.get_closest_index(array, value, less_than=False)
     assert greater_than == 3
 
+
 # Golden
-@pytest.mark.skip()
+# @pytest.mark.skip()
 def test_golden():
     safe_name = str(Path(ZIP_PATH).with_suffix(''))
     index_safe.index_safe(safe_name)
-    extract_burst.extract_burst_http(TEST_BURST_NAME, 'bursts.csv')
+    extract_burst.extract_burst_fsspec(TEST_BURST_NAME, 'bursts.csv')
 
     valid_data = load_geotiff(BURST_VALID_PATH)[0]
     test_data = load_geotiff(TEST_BURST_NAME)[0]

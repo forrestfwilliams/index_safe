@@ -89,7 +89,7 @@ def get_burst_annotation_data(zipped_safe_path: str, swath_path: str) -> Iterabl
     n_samples = int(xml.findtext('.//{*}samplesPerBurst'))
     burst_shape = (n_lines, n_samples)  #  y, x for numpy
     burst_starts = [int(x.findtext('.//{*}byteOffset')) for x in burst_xmls]
-    burst_lengths = burst_starts[1] - burst_starts[0] - 1
+    burst_lengths = burst_starts[1] - burst_starts[0]
     burst_offsets = [utils.Offset(x, x + burst_lengths) for x in burst_starts]
     burst_windows = [compute_valid_window(i, burst_xml) for i, burst_xml in enumerate(burst_xmls)]
     return burst_shape, burst_offsets, burst_windows
@@ -140,13 +140,14 @@ def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Ite
     Returns:
         BurstMetadata objects containing information needed to download and remove invalid data
     """
+    base_tiff_name = Path(zinfo.filename).name
     slc_name = Path(zipped_safe_path).with_suffix('').name
     burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
 
     bursts = []
     for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
-        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, burst_offset, burst_window)
+        burst = utils.BurstMetadata(burst_name, base_tiff_name, slc_name, burst_shape, burst_offset, burst_window)
         bursts.append(burst)
     return bursts
 
@@ -166,6 +167,7 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
     else:
         columns = [
             'name',
+            'base_tiff',
             'slc',
             'n_rows',
             'n_columns',
@@ -220,6 +222,7 @@ def index_safe(slc_name: str, keep: bool = True):
         starts = [x.uncompressed_offset.start for x in burst_metadata]
         stops = [x.uncompressed_offset.stop for x in burst_metadata]
         zip_indexer.build_gzidx(tiff_name, gzidx_name, starts=starts, stops=stops)
+        # zip_indexer.build_gzidx(tiff_name, gzidx_name)
         burst_metadatas = burst_metadatas + burst_metadata
 
     save_as_csv(burst_metadatas, 'bursts.csv')
