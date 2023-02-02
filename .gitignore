@@ -8,3 +8,4 @@ src/index_safe.egg-info/*
 **/*.gzidx
 **/*.zip
 **/*.xml
+**/*.csv
