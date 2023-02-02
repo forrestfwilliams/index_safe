@@ -1,6 +1,7 @@
 import sys
 import time
 
+import boto3
 import fsspec
 import requests
 
@@ -24,10 +25,21 @@ def download_requests(url, offset, length):
 
 
 def download_fsspec(url, offset, length):
-    base_fs = fsspec.filesystem('https')
+    base_fs = fsspec.filesystem('https', block_size = 5 * (2**20))
     with base_fs.open(url, 'rb') as f:
         f.seek(offset)
         body = f.read(length)
+    return body
+
+
+def download_s3(url, offset, length):
+    _, _, bucket, *parts = url.split('/')
+    bucket = bucket.split('.')[0]
+    key = '/'.join(parts)
+    range_header = f'bytes={offset}-{offset+length}'
+    client = boto3.client('s3')
+    resp = client.get_object(Bucket=bucket, Key=key, Range=range_header)
+    body = resp['Body'].read()
     return body
 
 
@@ -37,9 +49,10 @@ if __name__ == '__main__':
     url = f'{url_base}/{name}'
 
     offset = 1_000
-    length = 1_000_000_000
-    
-    args_dict = {'url':url, 'offset':offset, 'length':length}
+    length = 100_000_000
+
+    args_dict = {'url': url, 'offset': offset, 'length': length}
 
     benchmark(download_requests, args_dict)
     benchmark(download_fsspec, args_dict)
+    benchmark(download_s3, args_dict)
