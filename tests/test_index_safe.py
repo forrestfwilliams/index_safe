@@ -177,6 +177,13 @@ def test_invalid_to_nodata(golden_bytes):
     equal = np.isclose(valid_data, burst_array)
     assert np.all(equal)
 
+def test_get_closest_index():
+    array = np.arange(0,105,5)
+    value = 14
+    less_than = utils.get_closest_index(array, value)
+    assert less_than == 2
+    greater_than = utils.get_closest_index(array, value, less_than=False)
+    assert greater_than == 3
 
 # Golden
 @pytest.mark.skip()

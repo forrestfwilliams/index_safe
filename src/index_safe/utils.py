@@ -38,7 +38,7 @@ class BurstMetadata:
     name: str
     slc: str
     shape: Iterable[int]  # n_row, n_column
-    compressed_offset: Offset
+    uncompressed_offset: Offset
     valid_window: Window
 
     def to_tuple(self):
@@ -47,8 +47,8 @@ class BurstMetadata:
             self.slc,
             self.shape[0],
             self.shape[1],
-            self.compressed_offset.start,
-            self.compressed_offset.stop,
+            self.uncompressed_offset.start,
+            self.uncompressed_offset.stop,
             self.valid_window.xstart,
             self.valid_window.xend,
             self.valid_window.ystart,
@@ -89,6 +89,16 @@ class XmlMetadata:
 #         data_start = self.header_offset + n + m + 30
 #         data_stop = data_start + self.compress_size
 #         return Offset(data_start, data_stop)
+
+
+def get_closest_index(array, value, less_than=True):
+    if less_than:
+        valid_options = array[array <= value]
+    else:
+        valid_options = array[array >= value]
+    closest_number = valid_options[np.abs(valid_options - value).argmin()]
+    closest_index = int(np.argwhere(array == closest_number))
+    return closest_index
 
 
 def wrap_deflate_as_gz(payload: bytes, zinfo: zipfile.ZipInfo) -> bytes:
@@ -172,7 +182,9 @@ class ZipIndexer:
 
         return base_gzidx, offset
 
-    def build_gzidx(self, member_name: str, gzidx_path: str, points: Iterable[int] = None) -> str:
+    def build_gzidx(
+        self, member_name: str, gzidx_path: str, starts: Iterable[int] = [], stops: Iterable[int] = []
+    ) -> str:
         base_gzidx, offset = self.create_base_gzidx(member_name)
         point_array, n_points, window_size = self.parse_gzidx(base_gzidx)
 
@@ -182,8 +194,10 @@ class ZipIndexer:
         window_offsets = np.append([0], window_offsets, axis=0)
 
         point_array = np.append(point_array, np.expand_dims(window_offsets, axis=1), axis=1)
-        if points:
-            point_array = point_array[np.isin(point_array[:, 0], points), :].copy()
+        if starts or stops:
+            start_indexes = [get_closest_index(point_array[:, 1], x) for x in starts]
+            stop_indexes = [get_closest_index(point_array[:, 1], x, less_than=False) for x in starts]
+            point_array = point_array[start_indexes + stop_indexes, :].copy()
         point_array[:, 0] += offset.start - self.gz_header_length
 
         point_bytes = []
