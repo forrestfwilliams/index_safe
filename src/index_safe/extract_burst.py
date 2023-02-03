@@ -67,14 +67,18 @@ def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata) -> bytes:
     # base_fs = fsspec.filesystem('s3')
 
     name = f'https://ffwilliams2-shenanigans.s3.us-west-2.amazonaws.com/bursts/{Path(url).name}'
-    base_fs = fsspec.filesystem('https', block_size=5*MB)
+    base_fs = fsspec.filesystem('https', block_size=20 * MB)
+    fsspec.utils.setup_logging(logger_name='fsspec.http')
 
     gzidx_name = Path(metadata.base_tiff).with_suffix('.gzidx').name
+
+    length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
+    burst_bytes = bytearray(length)
     with base_fs.open(name, 'rb') as zip_fobj:
         with igzip.IndexedGzipFile(zip_fobj) as igzip_fobj:
             igzip_fobj.import_index(gzidx_name)
             igzip_fobj.seek(metadata.uncompressed_offset.start)
-            burst_bytes = igzip_fobj.read(metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start)
+            igzip_fobj.readinto(burst_bytes)
     return burst_bytes
 
 
@@ -164,8 +168,9 @@ def main():
     parser.add_argument('burst')
     parser.add_argument('df')
     args = parser.parse_args()
-    
+
     extract_burst_fsspec(args.burst, args.df)
+
 
 if __name__ == '__main__':
     main()
