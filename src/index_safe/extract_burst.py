@@ -68,7 +68,6 @@ def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata) -> bytes:
 
     name = f'https://ffwilliams2-shenanigans.s3.us-west-2.amazonaws.com/bursts/{Path(url).name}'
     base_fs = fsspec.filesystem('https', block_size=20 * MB)
-    fsspec.utils.setup_logging(logger_name='fsspec.http')
 
     gzidx_name = Path(metadata.base_tiff).with_suffix('.gzidx').name
 
