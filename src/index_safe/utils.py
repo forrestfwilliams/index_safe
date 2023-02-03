@@ -1,4 +1,5 @@
 import io
+import os
 import struct
 import tempfile
 import zipfile
@@ -11,11 +12,39 @@ import indexed_gzip as igzip
 import numpy as np
 import requests
 from tqdm import tqdm
+import json
+from datetime import datetime, timezone
 
 KB = 1024
 MB = 1024 * KB
-GB = 1024 * MB
 SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
+
+
+def get_tmp_access_keys(path):
+    token = os.environ['EDL_TOKEN']
+    resp = requests.get(
+        'https://sentinel1.asf.alaska.edu/s3credentials',
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    resp.raise_for_status()
+    path.write_bytes(resp.content)
+    return resp.json()
+
+
+def get_credentials():
+    credential_file = Path('credentials.json')
+    if not credential_file.exists():
+        credentials = get_tmp_access_keys(credential_file)
+        return credentials
+    
+    credentials = json.loads(credential_file.read_text())
+    expiration_time = datetime.fromisoformat(credentials['expiration'])
+    current_time = datetime.now(timezone.utc)
+
+    if current_time >= expiration_time:
+        credentials = get_tmp_access_keys(credential_file)
+
+    return credentials
 
 
 # TODO can also be np.array
