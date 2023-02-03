@@ -1,7 +1,9 @@
+import netrc
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Iterable
 
+import aiohttp
 import fsspec
 import indexed_gzip as igzip
 import numpy as np
@@ -14,14 +16,22 @@ KB = 1024
 MB = 1024 * KB
 
 
-def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata) -> bytes:
-    name = f'https://ffwilliams2-shenanigans.s3.us-west-2.amazonaws.com/bursts/{Path(url).name}'
+def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata, use_earthdata: bool = True) -> bytes:
     gzidx_name = '_'.join(metadata.name.split('_')[:-1]) + '.gzidx'
-    base_fs = fsspec.filesystem('https', block_size=20 * MB)
+
+    if use_earthdata:
+        my_netrc = netrc.netrc()
+        username, _, password = my_netrc.authenticators('urs.earthdata.nasa.gov')
+        auth = aiohttp.BasicAuth(username, password)
+        storage_options = {'block_size': 20 * MB, 'client_kwargs': {'trust_env': True, 'auth': auth}}
+        base_fs = fsspec.filesystem('https', **storage_options)
+    else:
+        url = f'https://ffwilliams2-shenanigans.s3.us-west-2.amazonaws.com/bursts/{Path(url).name}'
+        base_fs = fsspec.filesystem('https', block_size=20 * MB)
 
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = bytearray(length)
-    with base_fs.open(name, 'rb') as zip_fobj:
+    with base_fs.open(url, 'rb') as zip_fobj:
         with igzip.IndexedGzipFile(zip_fobj) as igzip_fobj:
             igzip_fobj.import_index(gzidx_name)
             igzip_fobj.seek(metadata.uncompressed_offset.start)
