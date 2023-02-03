@@ -1,9 +1,8 @@
-import netrc
+import os
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Iterable
 
-import aiohttp
 import fsspec
 import indexed_gzip as igzip
 import numpy as np
@@ -20,11 +19,9 @@ def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata, use_earthdata:
     gzidx_name = '_'.join(metadata.name.split('_')[:-1]) + '.gzidx'
 
     if use_earthdata:
-        my_netrc = netrc.netrc()
-        username, _, password = my_netrc.authenticators('urs.earthdata.nasa.gov')
-        auth = aiohttp.BasicAuth(username, password)
-        storage_options = {'block_size': 20 * MB, 'client_kwargs': {'trust_env': True, 'auth': auth}}
-        base_fs = fsspec.filesystem('https', **storage_options)
+        token = os.environ['EDL_TOKEN']
+        options = {'block_size': 100 * MB, 'client_kwargs': {'headers':{'Authorization': f'Bearer {token}'}}}
+        base_fs = fsspec.filesystem('https', **options)
     else:
         url = f'https://ffwilliams2-shenanigans.s3.us-west-2.amazonaws.com/bursts/{Path(url).name}'
         base_fs = fsspec.filesystem('https', block_size=20 * MB)
