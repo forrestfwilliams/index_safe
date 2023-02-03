@@ -67,9 +67,8 @@ def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata) -> bytes:
     # base_fs = fsspec.filesystem('s3')
 
     name = f'https://ffwilliams2-shenanigans.s3.us-west-2.amazonaws.com/bursts/{Path(url).name}'
+    gzidx_name = '_'.join(metadata.name.split('_')[:-1]) + '.gzidx'
     base_fs = fsspec.filesystem('https', block_size=20 * MB)
-
-    gzidx_name = Path(metadata.base_tiff).with_suffix('.gzidx').name
 
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = bytearray(length)
@@ -99,10 +98,9 @@ def invalid_to_nodata(array: np.ndarray, valid_window: utils.Window, nodata_valu
 def row_to_burst_entry(row: pd.Series) -> utils.BurstMetadata:
     shape = (row['n_rows'], row['n_columns'])
     decompressed_offset = utils.Offset(row['offset_start'], row['offset_stop'])
-
     window = utils.Window(row['valid_x_start'], row['valid_y_start'], row['valid_x_stop'], row['valid_y_stop'])
 
-    burst_entry = utils.BurstMetadata(row['name'], row['base_tiff'], row['slc'], shape, decompressed_offset, window)
+    burst_entry = utils.BurstMetadata(row['name'], row['slc'], shape, decompressed_offset, window)
     return burst_entry
 
 

@@ -123,10 +123,25 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
     Returns:
         Name of burst
     """
-    slc_parts = slc_name.split('_')[:7]
     _, swath, _, polarization, *_ = swath_name.split('-')
-    all_parts = slc_parts + [swath.upper(), polarization.upper(), str(burst_index)]
+    all_parts = [slc_name, swath.upper(), polarization.upper(), str(burst_index)]
     return '_'.join(all_parts) + '.tiff'
+
+
+def create_gzidx_name(slc_name: str, swath_name: str) -> str:
+    """Create name for a swath index file
+
+    Args:
+        slc_name: Name of SLC
+        swath_name: Name of swath
+        burst_index: Zero-indexed burst number in swath
+
+    Returns:
+        Name of swath index
+    """
+    _, swath, _, polarization, *_ = swath_name.split('-')
+    all_parts = [slc_name, swath.upper(), polarization.upper()]
+    return '_'.join(all_parts) + '.gzidx'
 
 
 def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
@@ -140,14 +155,13 @@ def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Ite
     Returns:
         BurstMetadata objects containing information needed to download and remove invalid data
     """
-    base_tiff_name = Path(zinfo.filename).name
     slc_name = Path(zipped_safe_path).with_suffix('').name
     burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
 
     bursts = []
     for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
-        burst = utils.BurstMetadata(burst_name, base_tiff_name, slc_name, burst_shape, burst_offset, burst_window)
+        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, burst_offset, burst_window)
         bursts.append(burst)
     return bursts
 
@@ -167,7 +181,6 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
     else:
         columns = [
             'name',
-            'base_tiff',
             'slc',
             'n_rows',
             'n_columns',
@@ -217,7 +230,7 @@ def index_safe(slc_name: str, keep: bool = True):
     zip_indexer = utils.ZipIndexer(zipped_safe_path)
     for tiff in tqdm(tiffs):
         tiff_name = Path(tiff.filename).name
-        gzidx_name = Path(tiff.filename).with_suffix('.gzidx').name
+        gzidx_name = create_gzidx_name(slc_name, tiff_name)
         burst_metadata = create_burst_metadatas(zipped_safe_path, tiff)
         starts = [x.uncompressed_offset.start for x in burst_metadata]
         stops = [x.uncompressed_offset.stop for x in burst_metadata]

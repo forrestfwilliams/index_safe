@@ -36,7 +36,6 @@ class Window:
 @dataclass(frozen=True)
 class BurstMetadata:
     name: str
-    base_tiff: str
     slc: str
     shape: Iterable[int]  # n_row, n_column
     uncompressed_offset: Offset
@@ -45,7 +44,6 @@ class BurstMetadata:
     def to_tuple(self):
         tuppled = (
             self.name,
-            self.base_tiff,
             self.slc,
             self.shape[0],
             self.shape[1],
