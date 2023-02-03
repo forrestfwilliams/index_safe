@@ -9,3 +9,4 @@ src/index_safe.egg-info/*
 **/*.zip
 **/*.xml
 **/*.csv
+**/*.json
