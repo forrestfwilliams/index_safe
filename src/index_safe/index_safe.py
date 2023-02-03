@@ -220,6 +220,7 @@ def index_safe(slc_name: str, keep: bool = True):
     with zipfile.ZipFile(zipped_safe_path) as f:
         tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
         xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
+        xmls += [x for x in f.infolist() if 'manifest.safe' == Path(x.filename).name] 
 
     print('Reading XMLs...')
     xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
@@ -235,7 +236,6 @@ def index_safe(slc_name: str, keep: bool = True):
         starts = [x.uncompressed_offset.start for x in burst_metadata]
         stops = [x.uncompressed_offset.stop for x in burst_metadata]
         zip_indexer.build_gzidx(tiff_name, gzidx_name, starts=starts, stops=stops)
-        # zip_indexer.build_gzidx(tiff_name, gzidx_name)
         burst_metadatas = burst_metadatas + burst_metadata
 
     save_as_csv(burst_metadatas, 'bursts.csv')
