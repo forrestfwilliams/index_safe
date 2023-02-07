@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from index_safe import extract_burst, create_index, utils
+from index_safe import create_index, extract_burst, utils
 
 BURST_LENGTH = 153814955 - 109035 - 1
 BURST_SHAPE = (1510, 25448)
@@ -74,6 +74,48 @@ def seek_point_array():
     array = np.array(seek_points)
 
     return array
+
+
+# WORKS
+def test_tmp1(seek_point_array):
+    import io
+
+    with open(GZ_PATH, 'rb') as f:
+        body = f.read()
+
+    with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
+        igzip_fobj.import_index(GZIDX_PATH)
+        igzip_fobj.seek(100)
+        out = igzip_fobj.read(100)
+
+    assert True
+
+
+# WORKS
+def test_tmp2():
+    import io
+
+    gzidx_name = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV.gzidx'
+    with open(gzidx_name, 'rb') as f:
+        index = f.read()
+    points, compressed_size, uncompressed_size, window_size, n_points = utils.parse_gzidx(index)
+
+    # start = 0  # works
+
+    start = 2289811182  # works
+    stop = 3186232043
+
+    with open(ZIP_PATH, 'rb') as f:
+        f.seek(start)
+        body = f.read(stop - start)
+
+    breakpoint()
+    with igzip.IndexedGzipFile(io.BytesIO(bytes(1) + body)) as igzip_fobj:
+        igzip_fobj.import_index(gzidx_name)
+        igzip_fobj.seek(100)
+        out = igzip_fobj.read(100)
+
+    assert True
 
 
 def test_zip_indexer():

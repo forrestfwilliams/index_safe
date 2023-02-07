@@ -147,12 +147,13 @@ def get_zip_compressed_offset(zip_path: str, zinfo: zipfile.ZipInfo) -> Offset:
 
 
 def parse_gzidx(gzidx: bytes) -> Iterable:
-    header = gzidx[:35]
-    n_points = struct.unpack('<I', header[31:])[0]
-    window_size = struct.unpack('<I', header[27:31])[0]
+    compressed_size, uncompressed_size, point_spacing, window_size, n_points = struct.unpack('<QQIII', gzidx[7:35])
+    # header = gzidx[:35]
+    # n_points = struct.unpack('<I', header[31:])[0]
+    # window_size = struct.unpack('<I', header[27:31])[0]
     raw_points = gzidx[35 : 35 + n_points * 18]
     points = np.array([struct.unpack('<QQBB', raw_points[18 * i : 18 * (i + 1)]) for i in range(n_points)])
-    return points, n_points, window_size
+    return points, compressed_size, uncompressed_size, window_size, n_points
 
 
 class ZipIndexer:
@@ -192,7 +193,7 @@ class ZipIndexer:
         self, member_name: str, gzidx_path: str, starts: Iterable[int] = [], stops: Iterable[int] = []
     ) -> str:
         base_gzidx, offset = self.create_base_gzidx(member_name)
-        point_array, n_points, window_size = parse_gzidx(base_gzidx)
+        point_array, _, _, window_size, n_points = parse_gzidx(base_gzidx)
 
         # FIXME Assume only first window entry is zero
         length_to_window = self.gzidx_header_length + (self.gzidx_point_length * n_points)
@@ -203,8 +204,11 @@ class ZipIndexer:
         if starts or stops:
             start_indexes = [get_closest_index(point_array[:, 1], x) for x in starts]
             stop_indexes = [get_closest_index(point_array[:, 1], x, less_than=False) for x in starts]
-            point_array = point_array[start_indexes + stop_indexes, :].copy()
-        point_array[:, 0] += offset.start - self.gz_header_length
+            point_array = point_array[sorted(start_indexes + stop_indexes), :].copy()
+
+        point_array[:, 0] -= 9
+        archive_size_bytes = struct.pack('<Q', 1+offset.stop-offset.start)
+        # point_array[:, 0] += offset.start - self.gz_header_length
 
         point_bytes = []
         window_bytes = []
@@ -219,7 +223,7 @@ class ZipIndexer:
             point_bytes.append(point_entry)
             window_bytes.append(window_entry)
 
-        archive_size_bytes = struct.pack('<Q', self.archive_size)
+        # archive_size_bytes = struct.pack('<Q', self.archive_size)
 
         header = base_gzidx[:7] + archive_size_bytes + base_gzidx[15:31] + struct.pack('<I', point_array.shape[0])
         altered_gzidx = header + b''.join(point_bytes) + b''.join(window_bytes)
