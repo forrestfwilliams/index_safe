@@ -203,11 +203,18 @@ class ZipIndexer:
         point_array = np.append(point_array, np.expand_dims(window_offsets, axis=1), axis=1)
         if starts or stops:
             start_indexes = [get_closest_index(point_array[:, 1], x) for x in starts]
-            stop_indexes = [get_closest_index(point_array[:, 1], x, less_than=False) for x in starts]
+            stop_indexes = [get_closest_index(point_array[:, 1], x, less_than=False) for x in stops]
             point_array = point_array[sorted(start_indexes + stop_indexes), :].copy()
 
-        point_array[:, 0] -= 9
-        archive_size_bytes = struct.pack('<Q', 1+offset.stop-offset.start)
+        print(Offset(point_array[-2,0]+offset.start - 10, point_array[-1,0]+offset.start - 10))
+        print(Offset(starts[0], stops[0]))
+        point_array[:,0] -= (point_array[0,0] - 10)
+        point_array = np.append([[1,0,0,0,0]], point_array, axis=0)
+        archive_size_bytes = struct.pack('<Q', max(point_array[:,0]))
+
+        # archive_size_bytes = struct.pack('<Q', 10+offset.stop-offset.start)
+        # print(offset)
+
         # point_array[:, 0] += offset.start - self.gz_header_length
 
         point_bytes = []

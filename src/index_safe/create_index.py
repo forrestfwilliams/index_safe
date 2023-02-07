@@ -235,7 +235,8 @@ def index_safe(slc_name: str, keep: bool = True):
         burst_metadata = create_burst_metadatas(zipped_safe_path, tiff)
         starts = [x.uncompressed_offset.start for x in burst_metadata]
         stops = [x.uncompressed_offset.stop for x in burst_metadata]
-        zip_indexer.build_gzidx(tiff_name, gzidx_name, starts=starts, stops=stops)
+        zip_indexer.build_gzidx(tiff_name, gzidx_name, starts=starts[3:4], stops=stops[3:4])
+        # zip_indexer.build_gzidx(tiff_name, gzidx_name, starts=starts, stops=stops)
         burst_metadatas = burst_metadatas + burst_metadata
 
     save_as_csv(burst_metadatas, 'bursts.csv')
