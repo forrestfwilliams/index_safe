@@ -159,9 +159,12 @@ def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Ite
     burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
 
     bursts = []
+    indexer = utils.ZipIndexer(zipped_safe_path, Path(zinfo.filename).name)
     for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
-        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, burst_offset, burst_window)
+        gzidx_name = Path(burst_name).with_suffix('.gzidx').name
+        indexer.build_gzidx(gzidx_name, starts=[burst_offset.start], stops=[burst_offset.stop], relative=True)
+        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, indexer.index_offset, burst_offset, burst_window)
         bursts.append(burst)
     return bursts
 
@@ -184,6 +187,8 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
             'slc',
             'n_rows',
             'n_columns',
+            'index_start',
+            'index_stop',
             'offset_start',
             'offset_stop',
             'valid_x_start',
@@ -220,7 +225,7 @@ def index_safe(slc_name: str, keep: bool = True):
     with zipfile.ZipFile(zipped_safe_path) as f:
         tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
         xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
-        xmls += [x for x in f.infolist() if 'manifest.safe' == Path(x.filename).name] 
+        xmls += [x for x in f.infolist() if 'manifest.safe' == Path(x.filename).name]
 
     print('Reading XMLs...')
     xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
@@ -228,15 +233,8 @@ def index_safe(slc_name: str, keep: bool = True):
 
     print('Reading Bursts...')
     burst_metadatas = []
-    for tiff in tqdm(tiffs[3:4]):
-        tiff_name = Path(tiff.filename).name
-        gzidx_name = create_gzidx_name(slc_name, tiff_name)
+    for tiff in tqdm(tiffs):
         burst_metadata = create_burst_metadatas(zipped_safe_path, tiff)
-        starts = [x.uncompressed_offset.start for x in burst_metadata]
-        stops = [x.uncompressed_offset.stop for x in burst_metadata]
-        zip_indexer = utils.ZipIndexer(zipped_safe_path, tiff_name)
-        zip_indexer.build_gzidx(gzidx_name, starts=starts[3:4], stops=stops[3:4])
-        # zip_indexer.build_gzidx(tiff_name, gzidx_name, starts=starts, stops=stops)
         burst_metadatas = burst_metadatas + burst_metadata
 
     save_as_csv(burst_metadatas, 'bursts.csv')

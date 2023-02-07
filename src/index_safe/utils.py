@@ -67,6 +67,7 @@ class BurstMetadata:
     name: str
     slc: str
     shape: Iterable[int]  # n_row, n_column
+    index_offset: Offset
     uncompressed_offset: Offset
     valid_window: Window
 
@@ -76,6 +77,8 @@ class BurstMetadata:
             self.slc,
             self.shape[0],
             self.shape[1],
+            self.index_offset.start,
+            self.index_offset.stop,
             self.uncompressed_offset.start,
             self.uncompressed_offset.stop,
             self.valid_window.xstart,
