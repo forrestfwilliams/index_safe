@@ -1,9 +1,11 @@
 import io
+import json
 import os
 import struct
 import tempfile
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from gzip import _create_simple_gzip_header
 from pathlib import Path
 from typing import Iterable
@@ -12,8 +14,6 @@ import indexed_gzip as igzip
 import numpy as np
 import requests
 from tqdm import tqdm
-import json
-from datetime import datetime, timezone
 
 KB = 1024
 MB = 1024 * KB
@@ -36,7 +36,7 @@ def get_credentials():
     if not credential_file.exists():
         credentials = get_tmp_access_keys(credential_file)
         return credentials
-    
+
     credentials = json.loads(credential_file.read_text())
     expiration_time = datetime.fromisoformat(credentials['expiration'])
     current_time = datetime.now(timezone.utc)
@@ -96,30 +96,6 @@ class XmlMetadata:
         return (self.name, self.slc, self.offset.start, self.offset.stop)
 
 
-# class OffsetZipInfo:
-#     def __init__(self, zip_path: str, zinfo: zipfile.ZipInfo):
-#         self.zip_path: str = zip_path
-#         self.header_offset: int = zinfo.header_offset
-#         self.compress_size: int = zinfo.compress_size
-#         self.file_size: int = zinfo.file_size
-#         self.filename: str = zinfo.filename
-#         self.CRC: bytes = zinfo.CRC
-#         self.compressed_offset: Offset = self.get_compressed_offset()
-#         self.zinfo = zinfo
-#
-#     def get_compressed_offset(self) -> Offset:
-#         with open(self.zip_path, 'rb') as f:
-#             f.seek(self.header_offset)
-#             data = f.read(30)
-#
-#         n = int.from_bytes(data[26:28], "little")
-#         m = int.from_bytes(data[28:30], "little")
-#
-#         data_start = self.header_offset + n + m + 30
-#         data_stop = data_start + self.compress_size
-#         return Offset(data_start, data_stop)
-
-
 def get_closest_index(array, value, less_than=True):
     if less_than:
         valid_options = array[array <= value]
@@ -170,6 +146,15 @@ def get_zip_compressed_offset(zip_path: str, zinfo: zipfile.ZipInfo) -> Offset:
     return Offset(data_start, data_stop)
 
 
+def parse_gzidx(gzidx: bytes) -> Iterable:
+    header = gzidx[:35]
+    n_points = struct.unpack('<I', header[31:])[0]
+    window_size = struct.unpack('<I', header[27:31])[0]
+    raw_points = gzidx[35 : 35 + n_points * 18]
+    points = np.array([struct.unpack('<QQBB', raw_points[18 * i : 18 * (i + 1)]) for i in range(n_points)])
+    return points, n_points, window_size
+
+
 class ZipIndexer:
     """Class for creating gzidx indexes for zip archive members
     that are compatible with the indexed_gzip library
@@ -182,14 +167,6 @@ class ZipIndexer:
         self.spacing = spacing
         self.gzidx_header_length = 35
         self.gzidx_point_length = 18
-
-    def parse_gzidx(self, gzidx: bytes) -> Iterable:
-        header = gzidx[:35]
-        n_points = struct.unpack('<I', header[31:])[0]
-        window_size = struct.unpack('<I', header[27:31])[0]
-        raw_points = gzidx[35 : 35 + n_points * 18]
-        points = np.array([struct.unpack('<QQBB', raw_points[18 * i : 18 * (i + 1)]) for i in range(n_points)])
-        return points, n_points, window_size
 
     def create_base_gzidx(self, member_name: str) -> Iterable:
         with zipfile.ZipFile(self.zip_path) as f:
@@ -215,7 +192,7 @@ class ZipIndexer:
         self, member_name: str, gzidx_path: str, starts: Iterable[int] = [], stops: Iterable[int] = []
     ) -> str:
         base_gzidx, offset = self.create_base_gzidx(member_name)
-        point_array, n_points, window_size = self.parse_gzidx(base_gzidx)
+        point_array, n_points, window_size = parse_gzidx(base_gzidx)
 
         # FIXME Assume only first window entry is zero
         length_to_window = self.gzidx_header_length + (self.gzidx_point_length * n_points)
