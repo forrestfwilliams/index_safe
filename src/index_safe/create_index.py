@@ -228,14 +228,14 @@ def index_safe(slc_name: str, keep: bool = True):
 
     print('Reading Bursts...')
     burst_metadatas = []
-    zip_indexer = utils.ZipIndexer(zipped_safe_path)
     for tiff in tqdm(tiffs[3:4]):
         tiff_name = Path(tiff.filename).name
         gzidx_name = create_gzidx_name(slc_name, tiff_name)
         burst_metadata = create_burst_metadatas(zipped_safe_path, tiff)
         starts = [x.uncompressed_offset.start for x in burst_metadata]
         stops = [x.uncompressed_offset.stop for x in burst_metadata]
-        zip_indexer.build_gzidx(tiff_name, gzidx_name, starts=starts[3:4], stops=stops[3:4])
+        zip_indexer = utils.ZipIndexer(zipped_safe_path, tiff_name)
+        zip_indexer.build_gzidx(gzidx_name, starts=starts[3:4], stops=stops[3:4])
         # zip_indexer.build_gzidx(tiff_name, gzidx_name, starts=starts, stops=stops)
         burst_metadatas = burst_metadatas + burst_metadata
 

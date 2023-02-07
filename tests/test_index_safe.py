@@ -77,45 +77,16 @@ def seek_point_array():
     return array
 
 
-# WORKS
-def test_tmp1():
-    import io
-
-    gzidx_name = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV.gzidx'
-    with open(gzidx_name, 'rb') as f:
-        index = f.read()
-    points, compressed_size, uncompressed_size, window_size, n_points = utils.parse_gzidx(index)
-
-    compressed = utils.Offset(start=2289811182, stop=3186232043)
-
-    with zipfile.ZipFile(ZIP_PATH) as f:
-        zinfo = [x for x in f.infolist() if TIFF_PATH in Path(x.filename).name][0]
-        with f.open(zinfo.filename, 'r') as member:
-            member.seek(100)
-            golden = member.read(100)
-
-    with open(ZIP_PATH, 'rb') as f:
-        f.seek(compressed.start)
-        body = bytes(10) + f.read(compressed.stop - compressed.start)
-
-    with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
-        igzip_fobj.import_index(gzidx_name)
-        igzip_fobj.seek(100)
-        test = igzip_fobj.read(100)
-
-    assert golden == test
-
-
-# WORKS
-def test_tmp2():
-    gzidx_name = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV.gzidx'
-
-    with open(gzidx_name, 'rb') as f:
-        index = f.read()
-    points, compressed_size, uncompressed_size, window_size, n_points = utils.parse_gzidx(index)
-
+def test_burst_specific_index():
     compressed = utils.Offset(start=2589615261, stop=2690292831)
     uncompressed = utils.Offset(start=461226795, stop=614932715)
+
+    tmp_file = tempfile.NamedTemporaryFile()
+    indexer = utils.ZipIndexer(ZIP_PATH, TIFF_PATH)
+    indexer.build_gzidx(tmp_file.name, [uncompressed.start], [uncompressed.stop], relative=True)
+
+    assert indexer.index_offset.start == compressed.start
+    assert indexer.index_offset.stop == compressed.stop
 
     with zipfile.ZipFile(ZIP_PATH) as f:
         zinfo = [x for x in f.infolist() if TIFF_PATH in Path(x.filename).name][0]
@@ -124,14 +95,38 @@ def test_tmp2():
             golden = member.read(uncompressed.stop - uncompressed.start)
 
     with open(ZIP_PATH, 'rb') as f:
-        f.seek(compressed.start)
-        body = bytes(10) + f.read(compressed.stop - compressed.start)
-    
+        f.seek(indexer.compressed_offset.start)
+        body = bytes(10) + f.read(indexer.compressed_offset.stop - indexer.compressed_offset.start)
+
     with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
-        igzip_fobj.import_index(gzidx_name)
+        igzip_fobj.import_index(tmp_file.name)
         igzip_fobj.seek(uncompressed.start)
         test = igzip_fobj.read(uncompressed.stop - uncompressed.start)
-    
+
+    assert golden == test
+
+
+def test_whole_file_index():
+    uncompressed = utils.Offset(start=461226795, stop=614932715)
+
+    tmp_file = tempfile.NamedTemporaryFile()
+    indexer = utils.ZipIndexer(ZIP_PATH, TIFF_PATH)
+    indexer.build_gzidx(tmp_file.name, relative=False)
+
+    with open(ZIP_PATH, 'rb') as f:
+        body = f.read()
+
+    with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
+        igzip_fobj.import_index(tmp_file.name)
+        igzip_fobj.seek(uncompressed.start)
+        test = igzip_fobj.read(uncompressed.stop - uncompressed.start)
+
+    with zipfile.ZipFile(ZIP_PATH) as f:
+        zinfo = [x for x in f.infolist() if TIFF_PATH in Path(x.filename).name][0]
+        with f.open(zinfo.filename, 'r') as member:
+            member.seek(uncompressed.start)
+            golden = member.read(uncompressed.stop - uncompressed.start)
+
     assert golden == test
 
 
