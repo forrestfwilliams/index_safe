@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from index_safe import extract_burst, index_safe, utils
+from index_safe import extract_burst, create_index, utils
 
 BURST_LENGTH = 153814955 - 109035 - 1
 BURST_SHAPE = (1510, 25448)
@@ -133,7 +133,7 @@ def test_wrap_deflate_as_gz(zinfo, golden_bytes):
 
 # Burst level
 def test_get_burst_annotation_data(zinfo):
-    burst_shape, burst_offsets, burst_windows = index_safe.get_burst_annotation_data(ZIP_PATH, zinfo.filename)
+    burst_shape, burst_offsets, burst_windows = create_index.get_burst_annotation_data(ZIP_PATH, zinfo.filename)
 
     assert burst_shape == BURST_SHAPE
     assert burst_offsets[0].start == BURST_START
@@ -193,7 +193,7 @@ def test_get_closest_index():
 # @pytest.mark.skip()
 def test_golden():
     safe_name = str(Path(ZIP_PATH).with_suffix(''))
-    index_safe.index_safe(safe_name)
+    create_index.index_safe(safe_name)
     extract_burst.extract_burst_fsspec(TEST_BURST_NAME, 'bursts.csv')
 
     valid_data = load_geotiff(BURST_VALID_PATH)[0]

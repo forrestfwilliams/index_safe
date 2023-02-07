@@ -31,7 +31,7 @@ dependencies = [
 dynamic = ["version"]
 
 [project.scripts]
-index_safe = "index_safe.index_safe:main"
+index_safe = "index_safe.create_index:main"
 extract_burst = "index_safe.extract_burst:main"
 extract_metadata = "index_safe.extract_metadata:main"
 
