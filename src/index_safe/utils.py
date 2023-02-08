@@ -204,17 +204,21 @@ class ZipIndexer:
         if starts or stops:
             start_indexes = [get_closest_index(point_array[:, 1], x) for x in starts]
             stop_indexes = [get_closest_index(point_array[:, 1], x, less_than=False) for x in stops]
+
+            if 0 not in start_indexes:
+                start_indexes.append(min(start_indexes) - 1)
+
             point_array = point_array[sorted(start_indexes + stop_indexes), :].copy()
 
         if relative:
-            data_start = point_array[-2, 0] - self.gz_header_length + self.member_offset.start
+            data_start = point_array[0, 0] - self.gz_header_length + self.member_offset.start
             data_stop = point_array[-1, 0] - self.gz_header_length + self.member_offset.start
             self.index_offset = Offset(data_start, data_stop)
 
-            point_array[:, 0] -= point_array[0, 0] - self.gz_header_length
+            point_array[:, 0] -= point_array[0, 0]
             filesize_bytes = struct.pack('<Q', max(point_array[:, 0]))
-            if not np.all(point_array[0] == [self.gz_header_length, 0, 0, 0, 0]):
-                point_array = np.append([[1, 0, 0, 0, 0]], point_array, axis=0)
+            # if not np.all(point_array[0] == [self.gz_header_length, 0, 0, 0, 0]):
+            #     point_array = np.append([[1, 0, 0, 0, 0]], point_array, axis=0)
         else:
             filesize_bytes = struct.pack('<Q', self.archive_size)
             self.index_offset = Offset(0, self.archive_size)

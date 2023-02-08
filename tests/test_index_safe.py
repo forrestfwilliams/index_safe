@@ -94,11 +94,11 @@ def seek_point_array():
 
 def test_burst_specific_index():
     # IW2 VV 3 golden
-    # compressed = utils.Offset(start=2589615261, stop=2690292831)
+    # compressed = utils.Offset(start=2589238610, stop=2690292831)
     # uncompressed = utils.Offset(start=461226795, stop=614932715)
 
-    # IW2 VV 7
-    compressed = utils.Offset(start=2987161210, stop=3087580208)
+    # # IW2 VV 7
+    compressed = utils.Offset(start=2986776876, stop=3087580208)
     uncompressed = utils.Offset(start=1076050475, stop=1229756395)
 
     tmp_file = tempfile.NamedTemporaryFile()
@@ -107,10 +107,12 @@ def test_burst_specific_index():
 
     assert indexer.index_offset.start == compressed.start
     assert indexer.index_offset.stop == compressed.stop
+    points, compressed_size, *_ = utils.parse_gzidx(Path(tmp_file.name).read_bytes())
 
     with open(ZIP_PATH, 'rb') as f:
         f.seek(indexer.index_offset.start)
-        body = bytes(10) + f.read(indexer.index_offset.stop - indexer.index_offset.start)
+        # body = bytes(10) + f.read(indexer.index_offset.stop - indexer.index_offset.start)
+        body = f.read(indexer.index_offset.stop - indexer.index_offset.start)
 
     with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
         igzip_fobj.import_index(tmp_file.name)

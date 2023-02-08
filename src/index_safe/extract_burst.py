@@ -56,11 +56,11 @@ def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, strategy: st
             aws_session_token=creds["sessionToken"],
         )
         resp = client.get_object(Bucket=BUCKET, Key=Path(url).name, Range=range_header)
-        body = bytes(10) + resp['Body'].read()
+        body = resp['Body'].read()
     elif strategy == 'http':
         client = requests.session()
         resp = client.get(url, headers={'Range': range_header})
-        body = bytes(10) + resp.content
+        body = resp.content
 
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = bytearray(length)
