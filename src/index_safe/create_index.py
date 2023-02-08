@@ -3,6 +3,7 @@ import os
 import xml.etree.ElementTree as ET
 import zipfile
 from argparse import ArgumentParser
+from itertools import chain
 from pathlib import Path
 from typing import Iterable
 
@@ -144,7 +145,7 @@ def create_gzidx_name(slc_name: str, swath_name: str) -> str:
     return '_'.join(all_parts) + '.gzidx'
 
 
-def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
+def create_burst_specific_indexes(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
     """Create objects containing information needed to download burst tiff from compressed file directly,
     and remove invalid data, for a swath tiff.
 
@@ -164,6 +165,34 @@ def create_burst_metadatas(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Ite
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
         gzidx_name = Path(burst_name).with_suffix('.gzidx').name
         indexer.build_gzidx(gzidx_name, starts=[burst_offset.start], stops=[burst_offset.stop], relative=True)
+        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, indexer.index_offset, burst_offset, burst_window)
+        bursts.append(burst)
+    return bursts
+
+
+def create_swath_indexes(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
+    """Create objects containing information needed to download burst tiff from compressed file directly,
+    and remove invalid data, for a swath tiff.
+
+    Args:
+        zipped_safe_path: Path to zipped SAFE
+        zinfo: ZipInfo object for desired XML
+
+    Returns:
+        BurstMetadata objects containing information needed to download and remove invalid data
+    """
+    slc_name = Path(zipped_safe_path).with_suffix('').name
+    tiff_name = Path(zinfo.filename).name
+    gzidx_name = create_gzidx_name(slc_name, tiff_name)
+
+    burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
+
+    indexer = utils.ZipIndexer(zipped_safe_path, Path(zinfo.filename).name)
+    indexer.build_gzidx(gzidx_name, starts=[x.start for x in burst_offsets], stops=[x.stop for x in burst_offsets])
+
+    bursts = []
+    for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
+        burst_name = create_burst_name(slc_name, zinfo.filename, i)
         burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, indexer.index_offset, burst_offset, burst_window)
         bursts.append(burst)
     return bursts
@@ -232,12 +261,10 @@ def index_safe(slc_name: str, keep: bool = True):
     save_as_csv(xml_metadatas, 'metadata.csv')
 
     print('Reading Bursts...')
-    burst_metadatas = []
-    for tiff in tqdm(tiffs):
-        burst_metadata = create_burst_metadatas(zipped_safe_path, tiff)
-        burst_metadatas = burst_metadatas + burst_metadata
-
+    burst_metadatas = list(chain(*[create_burst_specific_indexes(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    # burst_metadatas = list(chain(*[create_swath_indexes(zipped_safe_path, x) for x in tqdm(tiffs)]))
     save_as_csv(burst_metadatas, 'bursts.csv')
+
     if not keep:
         os.remove(zipped_safe_path)
 

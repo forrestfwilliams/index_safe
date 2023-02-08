@@ -23,25 +23,15 @@ BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata, strategy: bool = 'direct_access') -> bytes:
     gzidx_name = '_'.join(metadata.name.split('_')[:-1]) + '.gzidx'
 
-    if strategy == 'edl_http':
+    if strategy == 's3':
+        creds = utils.get_credentials()
+        options = {'key': creds['accessKeyId'], 'secret': creds['secretAccessKey'], 'token': creds['sessionToken']}
+        base_fs = fsspec.filesystem('s3', **options)
+        url = f'{BUCKET}/{Path(url).name}'
+    elif strategy == 'http':
         token = os.environ['EDL_TOKEN']
         options = {'block_size': 100 * MB, 'client_kwargs': {'headers': {'Authorization': f'Bearer {token}'}}}
         base_fs = fsspec.filesystem('https', **options)
-    elif strategy == 'open_http':
-        url = f'https://ffwilliams2-shenanigans.s3.us-west-2.amazonaws.com/bursts/{Path(url).name}'
-        base_fs = fsspec.filesystem('https', block_size=20 * MB)
-    elif strategy == 'direct_access':
-        creds = utils.get_credentials()
-        options = {'key': creds['accessKeyId'], 'secret': creds['secretAccessKey'], 'token': creds['sessionToken']}
-        # client = boto3.client(
-        #         "s3",
-        #         aws_access_key_id=creds["accessKeyId"],
-        #         aws_secret_access_key=creds["secretAccessKey"],
-        #         aws_session_token=creds["sessionToken"]
-        #     )
-        #
-        base_fs = fsspec.filesystem('s3', **options)
-        url = f'{BUCKET}/{Path(url).name}'
 
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = bytearray(length)
