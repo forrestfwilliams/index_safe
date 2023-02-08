@@ -17,7 +17,7 @@ from . import utils
 KB = 1024
 MB = 1024 * KB
 
-BUCKET = 's1-slc-7b420b89'
+BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
 def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata, strategy: bool = 'direct_access') -> bytes:
@@ -53,7 +53,7 @@ def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata, strategy: bool
     return burst_bytes
 
 
-def extract_bytes_s3(url: str, metadata: utils.BurstMetadata, strategy='http') -> bytes:
+def extract_bytes_s3(url: str, metadata: utils.BurstMetadata, strategy='s3') -> bytes:
     gzidx_name = Path(metadata.name).with_suffix('.gzidx').name
 
     range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop-1}'
