@@ -2,6 +2,7 @@ import io
 import os
 from argparse import ArgumentParser
 from pathlib import Path
+import requests
 from typing import Iterable
 
 import boto3
@@ -52,20 +53,25 @@ def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata, strategy: bool
     return burst_bytes
 
 
-def extract_bytes_s3(url: str, metadata: utils.BurstMetadata) -> bytes:
+def extract_bytes_s3(url: str, metadata: utils.BurstMetadata, strategy='http') -> bytes:
     gzidx_name = Path(metadata.name).with_suffix('.gzidx').name
 
-    creds = utils.get_credentials()
-    range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop}'
-    client = boto3.client(
-        "s3",
-        aws_access_key_id=creds["accessKeyId"],
-        aws_secret_access_key=creds["secretAccessKey"],
-        aws_session_token=creds["sessionToken"],
-    )
-    resp = client.get_object(Bucket=BUCKET, Key=Path(url).name, Range=range_header)
-    body = bytes(10) + resp['Body'].read()
-
+    range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop-1}'
+    if strategy == 's3':
+        creds = utils.get_credentials()
+        client = boto3.client(
+            "s3",
+            aws_access_key_id=creds["accessKeyId"],
+            aws_secret_access_key=creds["secretAccessKey"],
+            aws_session_token=creds["sessionToken"],
+        )
+        resp = client.get_object(Bucket=BUCKET, Key=Path(url).name, Range=range_header)
+        body = bytes(10) + resp['Body'].read()
+    elif strategy == 'http':
+        client = requests.session()
+        resp = client.get(url, headers={'Range': range_header})
+        body = bytes(10) + resp.content
+    
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = bytearray(length)
     with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
@@ -147,7 +153,7 @@ def main():
     parser.add_argument('df')
     args = parser.parse_args()
 
-    extract_burst_fsspec(args.burst, args.df)
+    extract_burst_s3(args.burst, args.df)
 
 
 if __name__ == '__main__':
