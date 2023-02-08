@@ -111,7 +111,7 @@ def extract_burst_by_swath(burst_name: str, df_file_name: str) -> str:
     burst_metadata = row_to_burst_entry(single_burst)
 
     url = utils.get_download_url(single_burst['slc'])
-    burst_bytes = extract_bytes_by_swath(url, burst_metadata, strategy='http')
+    burst_bytes = extract_bytes_by_swath(url, burst_metadata)
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
     out_name = array_to_raster(burst_name, burst_array)
@@ -124,7 +124,7 @@ def extract_burst_by_burst(burst_name: str, df_file_name: str) -> str:
     burst_metadata = row_to_burst_entry(single_burst)
 
     url = utils.get_download_url(single_burst['slc'])
-    burst_bytes = extract_bytes_by_burst(url, burst_metadata, strategy='http')
+    burst_bytes = extract_bytes_by_burst(url, burst_metadata)
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
     out_name = array_to_raster(burst_name, burst_array)
@@ -144,6 +144,7 @@ def main():
     args = parser.parse_args()
 
     extract_burst_by_burst(args.burst, args.df)
+    # extract_burst_by_swath(args.burst, args.df)
 
 
 if __name__ == '__main__':

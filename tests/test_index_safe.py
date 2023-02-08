@@ -29,7 +29,7 @@ TIFF_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.ti
 BURST_NUMBER = 7
 BURST_RAW_PATH = f'raw_0{BURST_NUMBER + 1}.slc.vrt'
 BURST_VALID_PATH = f'valid_0{BURST_NUMBER + 1}.slc.vrt'
-TEST_BURST_NAME = f'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_{BURST_NUMBER}.tiff'
+TEST_BURST_NAME = f'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_{BURST_NUMBER}.tiff'
 
 GZIDX_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gzidx'
 GZ_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff.gz'
@@ -51,6 +51,21 @@ def golden_bytes():
     with open(TIFF_PATH, 'rb') as f:
         golden_bytes = f.read()
     return golden_bytes
+
+
+@pytest.fixture(scope='module')
+def golden_tiff():
+    if not Path(TIFF_PATH).exists():
+        with zipfile.ZipFile(ZIP_PATH, mode='r') as archive:
+            info_list = archive.infolist()
+            zinfo = [x for x in info_list if TIFF_PATH in x.filename][0]
+            with archive.open(zinfo.filename, 'r') as f:
+                body = f.read()
+
+        with open(Path(zinfo.filename).name, 'wb') as f:
+            f.write(body)
+
+    return TIFF_PATH
 
 
 @pytest.fixture(scope='module')
@@ -78,8 +93,13 @@ def seek_point_array():
 
 
 def test_burst_specific_index():
-    compressed = utils.Offset(start=2589615261, stop=2690292831)
-    uncompressed = utils.Offset(start=461226795, stop=614932715)
+    # IW2 VV 3 golden
+    # compressed = utils.Offset(start=2589615261, stop=2690292831)
+    # uncompressed = utils.Offset(start=461226795, stop=614932715)
+
+    # IW2 VV 7
+    compressed = utils.Offset(start=2987161210, stop=3087580208)
+    uncompressed = utils.Offset(start=1076050475, stop=1229756395)
 
     tmp_file = tempfile.NamedTemporaryFile()
     indexer = utils.ZipIndexer(ZIP_PATH, TIFF_PATH)
@@ -88,20 +108,20 @@ def test_burst_specific_index():
     assert indexer.index_offset.start == compressed.start
     assert indexer.index_offset.stop == compressed.stop
 
-    with zipfile.ZipFile(ZIP_PATH) as f:
-        zinfo = [x for x in f.infolist() if TIFF_PATH in Path(x.filename).name][0]
-        with f.open(zinfo.filename, 'r') as member:
-            member.seek(uncompressed.start)
-            golden = member.read(uncompressed.stop - uncompressed.start)
-
     with open(ZIP_PATH, 'rb') as f:
-        f.seek(indexer.compressed_offset.start)
-        body = bytes(10) + f.read(indexer.compressed_offset.stop - indexer.compressed_offset.start)
+        f.seek(indexer.index_offset.start)
+        body = bytes(10) + f.read(indexer.index_offset.stop - indexer.index_offset.start)
 
     with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
         igzip_fobj.import_index(tmp_file.name)
         igzip_fobj.seek(uncompressed.start)
         test = igzip_fobj.read(uncompressed.stop - uncompressed.start)
+
+    with zipfile.ZipFile(ZIP_PATH) as f:
+        zinfo = [x for x in f.infolist() if TIFF_PATH in Path(x.filename).name][0]
+        with f.open(zinfo.filename, 'r') as member:
+            member.seek(uncompressed.start)
+            golden = member.read(uncompressed.stop - uncompressed.start)
 
     assert golden == test
 
@@ -245,9 +265,22 @@ def test_get_closest_index():
 
 # Golden
 # @pytest.mark.skip()
-def test_golden():
+def test_golden_by_burst(golden_tiff):
     safe_name = str(Path(ZIP_PATH).with_suffix(''))
-    create_index.index_safe(safe_name)
+    create_index.index_safe(safe_name, by_burst = True)
+    extract_burst.extract_burst_by_burst(TEST_BURST_NAME, 'bursts.csv')
+
+    valid_data = load_geotiff(BURST_VALID_PATH)[0]
+    test_data = load_geotiff(TEST_BURST_NAME)[0]
+
+    equal = np.isclose(valid_data, test_data)
+    assert np.all(equal)
+
+
+@pytest.mark.skip()
+def test_golden_by_swath(golden_tiff):
+    safe_name = str(Path(ZIP_PATH).with_suffix(''))
+    create_index.index_safe(safe_name, by_burst=False)
     extract_burst.extract_burst_by_swath(TEST_BURST_NAME, 'bursts.csv')
 
     valid_data = load_geotiff(BURST_VALID_PATH)[0]

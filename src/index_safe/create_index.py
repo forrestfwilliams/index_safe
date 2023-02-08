@@ -157,10 +157,11 @@ def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iter
         BurstMetadata objects containing information needed to download and remove invalid data
     """
     slc_name = Path(zipped_safe_path).with_suffix('').name
+    tiff_name = Path(zinfo.filename).name
     burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
 
     bursts = []
-    indexer = utils.ZipIndexer(zipped_safe_path, Path(zinfo.filename).name)
+    indexer = utils.ZipIndexer(zipped_safe_path, tiff_name)
     for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
         gzidx_name = Path(burst_name).with_suffix('.gzidx').name
@@ -231,7 +232,7 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
     return out_name
 
 
-def index_safe(slc_name: str, keep: bool = True):
+def index_safe(slc_name: str, by_burst: bool = True, keep: bool = True):
     """Create the index and other metadata needed to directly download
     and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
     this information in csv files.
@@ -261,8 +262,10 @@ def index_safe(slc_name: str, keep: bool = True):
     save_as_csv(xml_metadatas, 'metadata.csv')
 
     print('Reading Bursts...')
-    # burst_metadatas = list(chain(*[create_index_by_burst(zipped_safe_path, x) for x in tqdm(tiffs)]))
-    burst_metadatas = list(chain(*[create_index_by_swath(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    if by_burst:
+        burst_metadatas = list(chain(*[create_index_by_burst(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    else:
+        burst_metadatas = list(chain(*[create_index_by_swath(zipped_safe_path, x) for x in tqdm(tiffs)]))
     save_as_csv(burst_metadatas, 'bursts.csv')
 
     if not keep:
