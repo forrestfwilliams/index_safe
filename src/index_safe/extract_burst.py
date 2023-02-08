@@ -2,7 +2,6 @@ import io
 import os
 from argparse import ArgumentParser
 from pathlib import Path
-import requests
 from typing import Iterable
 
 import boto3
@@ -10,6 +9,7 @@ import fsspec
 import indexed_gzip as igzip
 import numpy as np
 import pandas as pd
+import requests
 from osgeo import gdal
 
 from . import utils
@@ -20,7 +20,7 @@ MB = 1024 * KB
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
-def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata, strategy: bool = 'direct_access') -> bytes:
+def extract_bytes_by_swath(url: str, metadata: utils.BurstMetadata, strategy: str = 's3') -> bytes:
     gzidx_name = '_'.join(metadata.name.split('_')[:-1]) + '.gzidx'
 
     if strategy == 's3':
@@ -43,10 +43,10 @@ def extract_bytes_fsspec(url: str, metadata: utils.BurstMetadata, strategy: bool
     return burst_bytes
 
 
-def extract_bytes_s3(url: str, metadata: utils.BurstMetadata, strategy='s3') -> bytes:
+def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, strategy: str = 's3') -> bytes:
     gzidx_name = Path(metadata.name).with_suffix('.gzidx').name
 
-    range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop-1}'
+    range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop - 1}'
     if strategy == 's3':
         creds = utils.get_credentials()
         client = boto3.client(
@@ -61,7 +61,7 @@ def extract_bytes_s3(url: str, metadata: utils.BurstMetadata, strategy='s3') -> 
         client = requests.session()
         resp = client.get(url, headers={'Range': range_header})
         body = bytes(10) + resp.content
-    
+
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = bytearray(length)
     with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
@@ -105,26 +105,26 @@ def array_to_raster(out_path: str, array: np.ndarray, fmt: str = 'GTiff') -> str
     return out_path
 
 
-def extract_burst_fsspec(burst_name: str, df_file_name: str) -> str:
+def extract_burst_by_swath(burst_name: str, df_file_name: str) -> str:
     df = pd.read_csv(df_file_name)
     single_burst = df.loc[df.name == burst_name].squeeze()
     burst_metadata = row_to_burst_entry(single_burst)
 
     url = utils.get_download_url(single_burst['slc'])
-    burst_bytes = extract_bytes_fsspec(url, burst_metadata)
+    burst_bytes = extract_bytes_by_swath(url, burst_metadata, strategy='http')
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
     out_name = array_to_raster(burst_name, burst_array)
     return out_name
 
 
-def extract_burst_s3(burst_name: str, df_file_name: str) -> str:
+def extract_burst_by_burst(burst_name: str, df_file_name: str) -> str:
     df = pd.read_csv(df_file_name)
     single_burst = df.loc[df.name == burst_name].squeeze()
     burst_metadata = row_to_burst_entry(single_burst)
 
     url = utils.get_download_url(single_burst['slc'])
-    burst_bytes = extract_bytes_s3(url, burst_metadata)
+    burst_bytes = extract_bytes_by_burst(url, burst_metadata, strategy='http')
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
     out_name = array_to_raster(burst_name, burst_array)
@@ -143,7 +143,7 @@ def main():
     parser.add_argument('df')
     args = parser.parse_args()
 
-    extract_burst_s3(args.burst, args.df)
+    extract_burst_by_burst(args.burst, args.df)
 
 
 if __name__ == '__main__':

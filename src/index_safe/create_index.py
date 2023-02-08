@@ -145,7 +145,7 @@ def create_gzidx_name(slc_name: str, swath_name: str) -> str:
     return '_'.join(all_parts) + '.gzidx'
 
 
-def create_burst_specific_indexes(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
+def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
     """Create objects containing information needed to download burst tiff from compressed file directly,
     and remove invalid data, for a swath tiff.
 
@@ -170,7 +170,7 @@ def create_burst_specific_indexes(zipped_safe_path: str, zinfo: zipfile.ZipInfo)
     return bursts
 
 
-def create_swath_indexes(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
+def create_index_by_swath(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
     """Create objects containing information needed to download burst tiff from compressed file directly,
     and remove invalid data, for a swath tiff.
 
@@ -261,8 +261,8 @@ def index_safe(slc_name: str, keep: bool = True):
     save_as_csv(xml_metadatas, 'metadata.csv')
 
     print('Reading Bursts...')
-    burst_metadatas = list(chain(*[create_burst_specific_indexes(zipped_safe_path, x) for x in tqdm(tiffs)]))
-    # burst_metadatas = list(chain(*[create_swath_indexes(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    # burst_metadatas = list(chain(*[create_index_by_burst(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    burst_metadatas = list(chain(*[create_index_by_swath(zipped_safe_path, x) for x in tqdm(tiffs)]))
     save_as_csv(burst_metadatas, 'bursts.csv')
 
     if not keep:

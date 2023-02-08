@@ -248,7 +248,7 @@ def test_get_closest_index():
 def test_golden():
     safe_name = str(Path(ZIP_PATH).with_suffix(''))
     create_index.index_safe(safe_name)
-    extract_burst.extract_burst_fsspec(TEST_BURST_NAME, 'bursts.csv')
+    extract_burst.extract_burst_by_swath(TEST_BURST_NAME, 'bursts.csv')
 
     valid_data = load_geotiff(BURST_VALID_PATH)[0]
     test_data = load_geotiff(TEST_BURST_NAME)[0]
