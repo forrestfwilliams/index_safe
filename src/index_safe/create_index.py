@@ -3,11 +3,10 @@ import os
 import xml.etree.ElementTree as ET
 import zipfile
 from argparse import ArgumentParser
-from itertools import chain
 from collections import ChainMap
+from itertools import chain
 from pathlib import Path
 from typing import Iterable
-
 
 import numpy as np
 import pandas as pd
@@ -169,7 +168,7 @@ def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iter
         gzidx_name = Path(burst_name).with_suffix('.gzidx').name
         index = indexer.build_gzidx(starts=[burst_offset.start], stops=[burst_offset.stop], relative=True)
         burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, indexer.index_offset, burst_offset, burst_window)
-        
+
         bursts[gzidx_name] = burst.to_bytes() + index
 
     return bursts

@@ -224,7 +224,7 @@ def test_get_burst_annotation_data(zinfo):
 
 
 def test_burst_bytes_to_numpy(golden_bytes):
-    test_array = extract_burst.burst_bytes_to_numpy(golden_bytes[BURST_START : BURST_STOP], BURST_SHAPE)
+    test_array = extract_burst.burst_bytes_to_numpy(golden_bytes[BURST_START:BURST_STOP], BURST_SHAPE)
     golden_array = load_geotiff(BURST_RAW_PATH)[0]
     equal = np.isclose(golden_array, test_array)
     assert np.all(equal)
@@ -235,7 +235,7 @@ def test_invalid_to_nodata(golden_bytes):
 
     valid_data = load_geotiff('valid_01.slc.vrt')[0]
 
-    golden_burst_bytes = golden_bytes[BURST0_START : BURST0_STOP]
+    golden_burst_bytes = golden_bytes[BURST0_START:BURST0_STOP]
     burst_array = extract_burst.burst_bytes_to_numpy(golden_burst_bytes, BURST_SHAPE)
     burst_array = extract_burst.invalid_to_nodata(burst_array, window)
 
