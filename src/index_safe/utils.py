@@ -215,10 +215,8 @@ class ZipIndexer:
             data_stop = point_array[-1, 0] - self.gz_header_length + self.member_offset.start
             self.index_offset = Offset(data_start, data_stop)
 
-            point_array[:, 0] -= point_array[0, 0]
+            point_array[:, 0] -= (point_array[0, 0] - self.gz_header_length)
             filesize_bytes = struct.pack('<Q', max(point_array[:, 0]))
-            # if not np.all(point_array[0] == [self.gz_header_length, 0, 0, 0, 0]):
-            #     point_array = np.append([[1, 0, 0, 0, 0]], point_array, axis=0)
         else:
             filesize_bytes = struct.pack('<Q', self.archive_size)
             self.index_offset = Offset(0, self.archive_size)

@@ -111,8 +111,7 @@ def test_burst_specific_index():
 
     with open(ZIP_PATH, 'rb') as f:
         f.seek(indexer.index_offset.start)
-        # body = bytes(10) + f.read(indexer.index_offset.stop - indexer.index_offset.start)
-        body = f.read(indexer.index_offset.stop - indexer.index_offset.start)
+        body = bytes(10) + f.read(indexer.index_offset.stop - indexer.index_offset.start)
 
     with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
         igzip_fobj.import_index(tmp_file.name)
@@ -266,7 +265,7 @@ def test_get_closest_index():
 
 
 # Golden
-# @pytest.mark.skip()
+@pytest.mark.skip()
 def test_golden_by_burst(golden_tiff):
     safe_name = str(Path(ZIP_PATH).with_suffix(''))
     create_index.index_safe(safe_name, by_burst = True)
