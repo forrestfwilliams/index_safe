@@ -103,7 +103,7 @@ class BurstMetadata:
             self.valid_window.ystart,
             self.valid_window.yend,
         )
-        byte_metadata = b'BURST' + struct.pack('<QQQQQQQQQQ', data)
+        byte_metadata = b'BURST' + struct.pack('<QQQQQQQQQQ', *data)
         return byte_metadata
 
 
@@ -209,7 +209,7 @@ class ZipIndexer:
         return base_gzidx, offset
 
     def build_gzidx(
-        self, gzidx_path: str, starts: Iterable[int] = [], stops: Iterable[int] = [], relative: bool = False
+        self, gzidx_path: str = None, starts: Iterable[int] = [], stops: Iterable[int] = [], relative: bool = False
     ) -> str:
         point_array, _, _, window_size, n_points = parse_gzidx(self.base_gzidx)
 
@@ -256,9 +256,12 @@ class ZipIndexer:
         header = self.base_gzidx[:7] + filesize_bytes + self.base_gzidx[15:31] + struct.pack('<I', point_array.shape[0])
         altered_gzidx = header + b''.join(point_bytes) + b''.join(window_bytes)
 
-        with open(gzidx_path, 'wb') as fobj:
-            fobj.write(altered_gzidx)
-        return gzidx_path
+        if gzidx_path:
+            with open(gzidx_path, 'wb') as fobj:
+                fobj.write(altered_gzidx)
+            return gzidx_path
+
+        return altered_gzidx
 
 
 def get_download_url(scene: str) -> str:

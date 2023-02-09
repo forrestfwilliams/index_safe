@@ -1,5 +1,6 @@
 import io
 import os
+import struct
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Iterable
@@ -62,10 +63,14 @@ def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, strategy: st
         resp = client.get(url, headers={'Range': range_header})
         body = bytes(10) + resp.content
 
+    with open(gzidx_name, 'rb') as f:
+        f.seek(85)
+        gzidx = f.read()
+
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = bytearray(length)
     with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
-        igzip_fobj.import_index(gzidx_name)
+        igzip_fobj.import_index(fileobj=io.BytesIO(gzidx))
         igzip_fobj.seek(metadata.uncompressed_offset.start)
         igzip_fobj.readinto(burst_bytes)
     return burst_bytes
@@ -96,6 +101,33 @@ def row_to_burst_entry(row: pd.Series) -> utils.BurstMetadata:
     return burst_entry
 
 
+def bytes_to_burst_entry(burst_name: str):
+    with open(Path(burst_name).with_suffix('.gzidx').name, 'rb') as f:
+        byte_data = f.read(85)
+
+    slc_name = '_'.join(burst_name.split('_')[:-3])
+    data = struct.unpack('<QQQQQQQQQQ', byte_data[5:85])
+
+    shape_y = data[0]
+    shape_x = data[1]
+    index_offset_start = data[2]
+    index_offset_stop = data[3]
+    data_offset_start = data[4]
+    data_offset_stop = data[5]
+    valid_xstart = data[6]
+    valid_xend = data[7]
+    valid_ystart = data[8]
+    valid_yend = data[9]
+
+    shape = (shape_y, shape_x)
+    index_offset = utils.Offset(index_offset_start, index_offset_stop)
+    decompressed_offset = utils.Offset(data_offset_start, data_offset_stop)
+    window = utils.Window(valid_xstart, valid_xend, valid_ystart, valid_yend)
+
+    burst_entry = utils.BurstMetadata(burst_name, slc_name, shape, index_offset, decompressed_offset, window)
+    return burst_entry
+
+
 def array_to_raster(out_path: str, array: np.ndarray, fmt: str = 'GTiff') -> str:
     driver = gdal.GetDriverByName(fmt)
     n_rows, n_cols = array.shape
@@ -118,12 +150,10 @@ def extract_burst_by_swath(burst_name: str, df_file_name: str) -> str:
     return out_name
 
 
-def extract_burst_by_burst(burst_name: str, df_file_name: str) -> str:
-    df = pd.read_csv(df_file_name)
-    single_burst = df.loc[df.name == burst_name].squeeze()
-    burst_metadata = row_to_burst_entry(single_burst)
+def extract_burst_by_burst(burst_name: str) -> str:
+    burst_metadata = bytes_to_burst_entry(burst_name)
 
-    url = utils.get_download_url(single_burst['slc'])
+    url = utils.get_download_url(burst_metadata.slc)
     burst_bytes = extract_bytes_by_burst(url, burst_metadata)
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
@@ -140,11 +170,9 @@ def main():
     """
     parser = ArgumentParser()
     parser.add_argument('burst')
-    parser.add_argument('df')
     args = parser.parse_args()
 
-    extract_burst_by_burst(args.burst, args.df)
-    # extract_burst_by_swath(args.burst, args.df)
+    extract_burst_by_burst(args.burst)
 
 
 if __name__ == '__main__':

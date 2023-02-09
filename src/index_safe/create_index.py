@@ -4,8 +4,10 @@ import xml.etree.ElementTree as ET
 import zipfile
 from argparse import ArgumentParser
 from itertools import chain
+from collections import ChainMap
 from pathlib import Path
 from typing import Iterable
+
 
 import numpy as np
 import pandas as pd
@@ -160,14 +162,16 @@ def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iter
     tiff_name = Path(zinfo.filename).name
     burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
 
-    bursts = []
+    bursts = {}
     indexer = utils.ZipIndexer(zipped_safe_path, tiff_name)
     for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
         gzidx_name = Path(burst_name).with_suffix('.gzidx').name
-        indexer.build_gzidx(gzidx_name, starts=[burst_offset.start], stops=[burst_offset.stop], relative=True)
+        index = indexer.build_gzidx(starts=[burst_offset.start], stops=[burst_offset.stop], relative=True)
         burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, indexer.index_offset, burst_offset, burst_window)
-        bursts.append(burst)
+        
+        bursts[gzidx_name] = burst.to_bytes() + index
+
     return bursts
 
 
@@ -263,10 +267,11 @@ def index_safe(slc_name: str, by_burst: bool = True, keep: bool = True):
 
     print('Reading Bursts...')
     if by_burst:
-        burst_metadatas = list(chain(*[create_index_by_burst(zipped_safe_path, x) for x in tqdm(tiffs)]))
+        burst_metadatas = dict(ChainMap(*[create_index_by_burst(zipped_safe_path, x) for x in tqdm(tiffs)]))
+        [Path(key).write_bytes(value) for key, value in burst_metadatas.items()]
     else:
         burst_metadatas = list(chain(*[create_index_by_swath(zipped_safe_path, x) for x in tqdm(tiffs)]))
-    save_as_csv(burst_metadatas, 'bursts.csv')
+        save_as_csv(burst_metadatas, 'bursts.csv')
 
     if not keep:
         os.remove(zipped_safe_path)
