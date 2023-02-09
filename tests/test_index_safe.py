@@ -25,9 +25,9 @@ BURST7_STOP = BURST7_START + BURST_LENGTH
 ZIP_PATH = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
 TIFF_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff'
 
-BURST_NUMBER = 0
-BURST_START = BURST0_START
-BURST_STOP = BURST0_STOP
+BURST_NUMBER = 7
+BURST_START = BURST7_START
+BURST_STOP = BURST7_STOP
 BURST_RAW_PATH = f'raw_0{BURST_NUMBER + 1}.slc.vrt'
 BURST_VALID_PATH = f'valid_0{BURST_NUMBER + 1}.slc.vrt'
 TEST_BURST_NAME = f'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_{BURST_NUMBER}.tiff'
@@ -224,7 +224,7 @@ def test_get_burst_annotation_data(zinfo):
 
 
 def test_burst_bytes_to_numpy(golden_bytes):
-    test_array = extract_burst.burst_bytes_to_numpy(golden_bytes[BURST_START : BURST_STOP], BURST_SHAPE)
+    test_array = extract_burst.burst_bytes_to_numpy(golden_bytes[BURST_START:BURST_STOP], BURST_SHAPE)
     golden_array = load_geotiff(BURST_RAW_PATH)[0]
     equal = np.isclose(golden_array, test_array)
     assert np.all(equal)
@@ -235,7 +235,7 @@ def test_invalid_to_nodata(golden_bytes):
 
     valid_data = load_geotiff('valid_01.slc.vrt')[0]
 
-    golden_burst_bytes = golden_bytes[BURST0_START : BURST0_STOP]
+    golden_burst_bytes = golden_bytes[BURST0_START:BURST0_STOP]
     burst_array = extract_burst.burst_bytes_to_numpy(golden_burst_bytes, BURST_SHAPE)
     burst_array = extract_burst.invalid_to_nodata(burst_array, window)
 
@@ -257,7 +257,7 @@ def test_get_closest_index():
 def test_golden_by_burst(golden_tiff):
     safe_name = str(Path(ZIP_PATH).with_suffix(''))
     create_index.index_safe(safe_name, by_burst=True)
-    extract_burst.extract_burst_by_burst(TEST_BURST_NAME, 'bursts.csv')
+    extract_burst.extract_burst_by_burst(TEST_BURST_NAME)
 
     valid_data = load_geotiff(BURST_VALID_PATH)[0]
     test_data = load_geotiff(TEST_BURST_NAME)[0]
