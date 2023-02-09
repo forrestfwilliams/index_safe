@@ -1,5 +1,6 @@
 import gzip
 import io
+import shutil
 import tempfile
 import zipfile
 import zlib
@@ -12,7 +13,7 @@ from osgeo import gdal
 
 from index_safe import create_index, extract_burst, utils
 
-BURST_LENGTH = 153814955 - 109035 - 1
+BURST_LENGTH = 153814955 - 109035
 BURST_SHAPE = (1510, 25448)
 
 BURST0_START = 109035
@@ -20,13 +21,13 @@ BURST0_STOP = BURST0_START + BURST_LENGTH
 BURST7_START = 1076050475
 BURST7_STOP = BURST7_START + BURST_LENGTH
 
-BURST_START = BURST0_START
-BURST_STOP = BURST0_STOP
 
 ZIP_PATH = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
 TIFF_PATH = 's1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff'
 
-BURST_NUMBER = 7
+BURST_NUMBER = 0
+BURST_START = BURST0_START
+BURST_STOP = BURST0_STOP
 BURST_RAW_PATH = f'raw_0{BURST_NUMBER + 1}.slc.vrt'
 BURST_VALID_PATH = f'valid_0{BURST_NUMBER + 1}.slc.vrt'
 TEST_BURST_NAME = f'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_{BURST_NUMBER}.tiff'
@@ -69,6 +70,15 @@ def golden_tiff():
 
 
 @pytest.fixture(scope='module')
+def golden_gz(golden_tiff):
+    if not Path(GZ_PATH).exists():
+        with open(TIFF_PATH, 'rb') as f_in:
+            with gzip.open(GZ_PATH, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+    return GZ_PATH
+
+
+@pytest.fixture(scope='module')
 def zinfo():
     with zipfile.ZipFile(ZIP_PATH, mode="r") as archive:
         info_list = archive.infolist()
@@ -77,7 +87,7 @@ def zinfo():
 
 
 @pytest.fixture(scope='module')
-def seek_point_array():
+def seek_point_array(golden_gz):
     if not Path(GZIDX_PATH).exists():
         print('Creating full gzidx')
         with igzip.IndexedGzipFile(GZ_PATH, spacing=2**22) as f:
@@ -155,27 +165,25 @@ def test_zip_indexer():
     start = 10
     length = 15
 
+    with tempfile.NamedTemporaryFile() as tmp:
+        zip_indexer = utils.ZipIndexer(ZIP_PATH, TIFF_PATH)
+        zip_indexer.build_gzidx(tmp.name)
+        with igzip.IndexedGzipFile(ZIP_PATH) as f:
+            f.import_index(tmp.name)
+            f.seek(start)
+            test = f.read(length)
+
     with zipfile.ZipFile(ZIP_PATH) as f:
         zinfo = [x for x in f.infolist() if TIFF_PATH in Path(x.filename).name][0]
         with f.open(zinfo.filename, 'r') as member:
             member.seek(start)
             golden = member.read(length)
 
-    with tempfile.NamedTemporaryFile() as tmp:
-        zip_indexer = utils.ZipIndexer(ZIP_PATH)
-        zip_indexer.build_gzidx(TIFF_PATH, tmp.name)
-        with igzip.IndexedGzipFile(ZIP_PATH, skip_crc_check=True) as f:
-            f.import_index(tmp.name)
-            f.seek(start)
-            test = f.read(length)
-
     assert golden == test
 
 
 def test_parse_gzidx(seek_point_array):
-    zip_indexer = utils.ZipIndexer(ZIP_PATH)
-    with open(GZIDX_PATH, 'rb') as f:
-        test_array, n_points, _ = zip_indexer.parse_gzidx(f.read())
+    test_array, _, _, _, n_points = utils.parse_gzidx(Path(GZIDX_PATH).read_bytes())
     assert np.all(test_array[:, [1, 0]] == seek_point_array)
     assert n_points == seek_point_array.shape[0]
 
@@ -216,38 +224,18 @@ def test_get_burst_annotation_data(zinfo):
 
 
 def test_burst_bytes_to_numpy(golden_bytes):
-    test_array = extract_burst.burst_bytes_to_numpy(golden_bytes[BURST_START : BURST_STOP + 1], (1510, 25448))
-
+    test_array = extract_burst.burst_bytes_to_numpy(golden_bytes[BURST_START : BURST_STOP], BURST_SHAPE)
     golden_array = load_geotiff(BURST_RAW_PATH)[0]
     equal = np.isclose(golden_array, test_array)
     assert np.all(equal)
 
 
-@pytest.mark.skip()
-def test_extract_bytes_http(golden_bytes):
-    url = (
-        'https://sentinel1.asf.alaska.edu/SLC/SA/'
-        'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip'
-    )
-    metadata = utils.BurstMetadata(
-        name='S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff',
-        slc='S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85',
-        shape=(1510, 25448),
-        compressed_offset=utils.Offset(start=2289811182, stop=2391345202),
-        decompressed_offset=utils.Offset(start=109035, stop=153814954),
-        valid_window=utils.Window(xstart=188, ystart=26, xend=24648, yend=1486),
-    )
-    test_bytes = extract_burst.extract_bytes_http(url, metadata)
-    golden_burst_bytes = golden_bytes[BURST_START : BURST_STOP + 1]
-    assert test_bytes == golden_burst_bytes
-
-
 def test_invalid_to_nodata(golden_bytes):
     window = utils.Window(xstart=188, ystart=26, xend=24648, yend=1486)
 
-    valid_data = load_geotiff(BURST_VALID_PATH)[0]
+    valid_data = load_geotiff('valid_01.slc.vrt')[0]
 
-    golden_burst_bytes = golden_bytes[BURST_START : BURST_STOP + 1]
+    golden_burst_bytes = golden_bytes[BURST0_START : BURST0_STOP]
     burst_array = extract_burst.burst_bytes_to_numpy(golden_burst_bytes, BURST_SHAPE)
     burst_array = extract_burst.invalid_to_nodata(burst_array, window)
 
@@ -268,7 +256,7 @@ def test_get_closest_index():
 @pytest.mark.skip()
 def test_golden_by_burst(golden_tiff):
     safe_name = str(Path(ZIP_PATH).with_suffix(''))
-    create_index.index_safe(safe_name, by_burst = True)
+    create_index.index_safe(safe_name, by_burst=True)
     extract_burst.extract_burst_by_burst(TEST_BURST_NAME, 'bursts.csv')
 
     valid_data = load_geotiff(BURST_VALID_PATH)[0]
