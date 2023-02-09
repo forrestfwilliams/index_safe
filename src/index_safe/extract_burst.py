@@ -90,7 +90,7 @@ def row_to_burst_entry(row: pd.Series) -> utils.BurstMetadata:
     shape = (row['n_rows'], row['n_columns'])
     index_offset = utils.Offset(row['index_start'], row['index_stop'])
     decompressed_offset = utils.Offset(row['offset_start'], row['offset_stop'])
-    window = utils.Window(row['valid_x_start'], row['valid_y_start'], row['valid_x_stop'], row['valid_y_stop'])
+    window = utils.Window(row['valid_x_start'], row['valid_x_stop'], row['valid_y_start'], row['valid_y_stop'])
 
     burst_entry = utils.BurstMetadata(row['name'], row['slc'], shape, index_offset, decompressed_offset, window)
     return burst_entry

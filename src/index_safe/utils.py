@@ -59,8 +59,8 @@ class Offset:
 @dataclass(frozen=True)
 class Window:
     xstart: int
-    ystart: int
     xend: int
+    ystart: int
     yend: int
 
 
@@ -89,6 +89,22 @@ class BurstMetadata:
             self.valid_window.yend,
         )
         return tuppled
+
+    def to_bytes(self):
+        data = (
+            self.shape[0],
+            self.shape[1],
+            self.index_offset.start,
+            self.index_offset.stop,
+            self.uncompressed_offset.start,
+            self.uncompressed_offset.stop,
+            self.valid_window.xstart,
+            self.valid_window.xend,
+            self.valid_window.ystart,
+            self.valid_window.yend,
+        )
+        byte_metadata = b'BURST' + struct.pack('<QQQQQQQQQQ', data)
+        return byte_metadata
 
 
 @dataclass(frozen=True)

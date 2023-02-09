@@ -56,8 +56,8 @@ def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:
 
     valid_window = utils.Window(
         valid_offsets_range.start,
-        valid_offsets_azimuth.start,
         valid_offsets_range.start + length_range,
+        valid_offsets_azimuth.start,
         valid_offsets_azimuth.start + length_azimuth,
     )
 
