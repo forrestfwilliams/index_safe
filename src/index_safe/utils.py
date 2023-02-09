@@ -261,7 +261,7 @@ def get_download_url(scene: str) -> str:
     return url
 
 
-def download_slc(scene: str,  strategy='s3') -> str:
+def download_slc(scene: str, strategy='s3') -> str:
     """Download a file
 
     Args:
