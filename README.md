@@ -22,16 +22,20 @@ Then, from within the top-level package directory, run:
 `python -m pip install -e .`
 
 # Usage
-Run `index_safe.py` Ex:
+Run `create_index.py` Ex:
 ```bash
-index_safe S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85
+create_index S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85
 ```
-This will create a `metadata.csv` and `bursts.csv` that contain the information needed to download the metadata/data
-directly.
+This will create a `metadata.csv` and burst index files (`*.gzidx`) that contain the information needed to download the metadata/data directly.
 
 Then, run `extract_burst.py` Ex:
 ```bash
-extract_burst \
-    S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff \
-    bursts.csv
+extract_burst S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff
 ```
+to get the burst image data
+
+Then, run `extract_metadata.py` Ex:
+```bash
+extract_metadata S1A_IW_SLC__1SDV_20200604T022251_20200604T022318 metadata.csv
+```
+to get the burst metadata
