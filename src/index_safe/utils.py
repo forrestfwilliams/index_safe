@@ -10,6 +10,7 @@ from gzip import _create_simple_gzip_header
 from pathlib import Path
 from typing import Iterable
 
+import boto3
 import indexed_gzip as igzip
 import numpy as np
 import requests
@@ -18,6 +19,7 @@ from tqdm import tqdm
 KB = 1024
 MB = 1024 * KB
 SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
+BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
 def get_tmp_access_keys(path):
@@ -215,7 +217,7 @@ class ZipIndexer:
             data_stop = point_array[-1, 0] - self.gz_header_length + self.member_offset.start
             self.index_offset = Offset(data_start, data_stop)
 
-            point_array[:, 0] -= (point_array[0, 0] - self.gz_header_length)
+            point_array[:, 0] -= point_array[0, 0] - self.gz_header_length
             filesize_bytes = struct.pack('<Q', max(point_array[:, 0]))
         else:
             filesize_bytes = struct.pack('<Q', self.archive_size)
@@ -259,7 +261,7 @@ def get_download_url(scene: str) -> str:
     return url
 
 
-def download_slc(scene: str, chunk_size=10 * MB) -> str:
+def download_slc(scene: str,  strategy='s3') -> str:
     """Download a file
 
     Args:
@@ -269,17 +271,35 @@ def download_slc(scene: str, chunk_size=10 * MB) -> str:
     Returns:
         download_path: The path to the downloaded file
     """
+    zip_name = f'{scene}.zip'
     url = get_download_url(scene)
-    download_path = Path(url).name
-    session = requests.Session()
-    with session.get(url, stream=True) as s:
-        s.raise_for_status()
-        total = int(s.headers.get('content-length', 0))
-        with open(download_path, "wb") as f:
-            with tqdm(unit='B', unit_scale=True, unit_divisor=1024, total=total) as pbar:
-                for chunk in s.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        pbar.update(len(chunk))
-    session.close()
-    return url
+
+    if strategy == 's3':
+        creds = get_credentials()
+        client = boto3.client(
+            "s3",
+            aws_access_key_id=creds["accessKeyId"],
+            aws_secret_access_key=creds["secretAccessKey"],
+            aws_session_token=creds["sessionToken"],
+        )
+
+        metadata = client.head_object(Bucket=BUCKET, Key=zip_name)
+        total_length = int(metadata.get('ContentLength', 0))
+        with tqdm(total=total_length, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
+            with open(zip_name, 'wb') as f:
+                client.download_fileobj(BUCKET, zip_name, f, Callback=pbar.update)
+
+    elif strategy == 'http':
+        session = requests.Session()
+        with session.get(url, stream=True) as s:
+            s.raise_for_status()
+            total = int(s.headers.get('content-length', 0))
+            with open(zip_name, "wb") as f:
+                with tqdm(unit='B', unit_scale=True, unit_divisor=1024, total=total) as pbar:
+                    for chunk in s.iter_content(chunk_size=10 * MB):
+                        if chunk:
+                            f.write(chunk)
+                            pbar.update(len(chunk))
+        session.close()
+
+    return scene
