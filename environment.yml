@@ -7,9 +7,12 @@ dependencies:
   - gdal
   - boto3
   - indexed_gzip
-  - python_isal
   - tqdm
   - numpy
   - pandas
+  - requests
+  - fsspec
+  - s3fs
+  - aiohttp
   # For packaging, and testing
   - pytest

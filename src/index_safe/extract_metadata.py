@@ -1,3 +1,4 @@
+import zlib
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
@@ -10,12 +11,6 @@ import requests
 from tqdm import tqdm
 
 from . import utils
-
-try:
-    from isal import isal_zlib as zlib
-except ImportError:
-    import zlib
-
 
 KB = 1024
 MB = 1024 * KB
