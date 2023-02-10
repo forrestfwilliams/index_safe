@@ -21,19 +21,35 @@ MB = 1024 * KB
 SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
+# FIXME json is not actual name of output
+def get_tmp_access_keys(save_path: str = 'credentials.json') -> dict:
+    """ Get temporary AWS access keys for direct
+    access to ASF data in S3.
 
-def get_tmp_access_keys(path):
+    Args:
+        save_path: path to save credentials to
+
+    Returns:
+        dictionary of credentials
+    """
     token = os.environ['EDL_TOKEN']
     resp = requests.get(
         'https://sentinel1.asf.alaska.edu/s3credentials',
         headers={'Authorization': f'Bearer {token}'},
     )
     resp.raise_for_status()
-    path.write_bytes(resp.content)
+    save_path.write_bytes(resp.content)
     return resp.json()
 
 
-def get_credentials():
+def get_credentials() -> dict:
+    """ Gets temporary ASF AWS credentials from
+    file or request new credentials if credentials
+    are not present or expired.
+
+    Returns:
+        dictionary of credentials
+    """
     credential_file = Path('credentials.json')
     if not credential_file.exists():
         credentials = get_tmp_access_keys(credential_file)
@@ -117,7 +133,17 @@ class XmlMetadata:
         return (self.name, self.slc, self.offset.start, self.offset.stop)
 
 
-def get_closest_index(array, value, less_than=True):
+def get_closest_index(array: np.ndarray, value: int, less_than: bool=True) -> int:
+    """Identifies index of closest value in a numpy array to input value.
+
+    Args:
+        array: 1d np array
+        value: value that you want to find closes index for in array
+        less_than: whether to return closest index that <= or >= value
+
+    Returns:
+        index of closest value
+    """
     if less_than:
         valid_options = array[array <= value]
     else:
@@ -145,8 +171,8 @@ def wrap_deflate_as_gz(payload: bytes, zinfo: zipfile.ZipInfo) -> bytes:
 
 
 def get_zip_compressed_offset(zip_path: str, zinfo: zipfile.ZipInfo) -> Offset:
-    """Get the byte offset (beginning byte and end byte inclusive)
-    for a member of a zip archive.
+    """Get the byte offset (beginning byte and end byte inclusive) for a member
+    of a zip archive.
 
     Args:
         zip_path: path to zip file on disk
@@ -168,6 +194,15 @@ def get_zip_compressed_offset(zip_path: str, zinfo: zipfile.ZipInfo) -> Offset:
 
 
 def parse_gzidx(gzidx: bytes) -> Iterable:
+    """Parse bytes of GZIDX file to return relevant information.
+
+    Args:
+        gzidx: bytes of a gzidx file
+
+    Returns
+        np.array of index points, compressed file size,
+        uncompressed file size, window size, and number of index points
+    """
     compressed_size, uncompressed_size, point_spacing, window_size, n_points = struct.unpack('<QQIII', gzidx[7:35])
     raw_points = gzidx[35 : 35 + n_points * 18]
     points = np.array([struct.unpack('<QQBB', raw_points[18 * i : 18 * (i + 1)]) for i in range(n_points)])
@@ -176,7 +211,7 @@ def parse_gzidx(gzidx: bytes) -> Iterable:
 
 class ZipIndexer:
     """Class for creating gzidx indexes for zip archive members
-    that are compatible with the indexed_gzip library
+    that are compatible with the indexed_gzip library.
     """
 
     def __init__(self, zip_path: str, member_name: str, spacing: int = 2**20):
@@ -189,6 +224,15 @@ class ZipIndexer:
         self.base_gzidx, self.member_offset = self.create_base_gzidx(member_name)
 
     def create_base_gzidx(self, member_name: str) -> Iterable:
+        """Build base GZIDX index for a Zip member file that has
+        been compresed using zlib (DEFLATE).
+
+        Args:
+            Name of zip member
+
+        Returns:
+            bytes of gzidx, and compressed range of member in zip archive
+        """
         with zipfile.ZipFile(self.zip_path) as f:
             zinfo = [x for x in f.infolist() if member_name in x.filename][0]
 
@@ -210,7 +254,19 @@ class ZipIndexer:
 
     def build_gzidx(
         self, gzidx_path: str = None, starts: Iterable[int] = [], stops: Iterable[int] = [], relative: bool = False
-    ) -> str:
+    ) -> bytes | str:
+        """Modifies a base GZIDX index so that it contains only the relevant data.
+
+        Args:
+            gzidx_path: optional save path for modified GZIDX, if actual index is returned
+            starts: uncompressed locations to provide indexes before
+            stops: uncompressed locations to provide indexes after
+            relative: if True, index will be valid entire zip archive, if False index will be localized to the first
+                point in the index
+
+        Returns:
+            bytes that make up index, or path to the saved index
+        """
         point_array, _, _, window_size, n_points = parse_gzidx(self.base_gzidx)
 
         # FIXME Assume only first window entry is zero
@@ -265,10 +321,11 @@ class ZipIndexer:
 
 
 def get_download_url(scene: str) -> str:
-    """Get download url for Sentinel-1 Scene
+    """Get download url for Sentinel-1 scene.
 
     Args:
         scene: scene name
+
     Returns:
         Scene url
     """
@@ -281,14 +338,12 @@ def get_download_url(scene: str) -> str:
 
 
 def download_slc(scene: str, strategy='s3') -> str:
-    """Download a file
+    """Download an SLC zip file from ASF.
 
     Args:
-        url: URL of the file to download
-        directory: Directory location to place files into
-        chunk_size: Size to chunk the download into
-    Returns:
-        download_path: The path to the downloaded file
+        scene: SLC name (no exstension)
+        strategy: strategy to use for download (s3 | http)
+            s3 only works if runnning from us-west-2 region
     """
     zip_name = f'{scene}.zip'
     url = get_download_url(scene)
@@ -320,5 +375,3 @@ def download_slc(scene: str, strategy='s3') -> str:
                             f.write(chunk)
                             pbar.update(len(chunk))
         session.close()
-
-    return scene
