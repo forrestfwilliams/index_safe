@@ -20,6 +20,17 @@ MAX_WBITS = 15
 def extract_bytes(
     url: str, offset: utils.Offset, client: botocore.client.BaseClient | requests.sessions.Session
 ) -> bytes:
+    """Extract bytes pertaining to a metadata xml file from a Sentinel-1 SLC archive using offset 
+    information from a XmlMetadata object.
+
+    Args:
+        url: url location of SLC archive
+        offset: offset for compressed data range in zip archive
+        client: client to use for downloading the data (s3 | http) client
+
+    Returns:
+        bytes representing metadata xml
+    """
     range_header = f'bytes={offset.start}-{offset.stop - 1}'
 
     if isinstance(client, botocore.client.BaseClient):
@@ -34,12 +45,34 @@ def extract_bytes(
 
 
 def row_to_metadata_entry(row: pd.Series) -> utils.XmlMetadata:
+    """Convert row of xml metadata dataframe to a xml metadata
+    object.
+
+    Args:
+        row: row of dataframe to convert
+
+    Returns:
+        xml metadata object
+    """
     compressed_offset = utils.Offset(row['offset_start'], row['offset_stop'])
     metadata_entry = utils.XmlMetadata(row['name'], row['slc'], compressed_offset)
     return metadata_entry
 
 
-def extract_metadata(slc_name, df_file_name, strategy='s3'):
+def extract_metadata(slc_name: str, df_file_name: str, strategy='s3'):
+    """Extract all xml metadata files from SLC in ASF archive
+    using offset information.
+
+    Args:
+        slc_name: name of slc to extract metadata files from
+        df_file_name: path to csv file containing extraction
+            metadata
+        strategy: strategy to use for download (s3 | http) s3 only 
+            works if runnning from us-west-2 region
+
+    Returns:
+        path to saved burst raster
+    """
     url = utils.get_download_url(slc_name)
     df = pd.read_csv(df_file_name)
     slc_df = df.loc[df.slc == slc_name]
@@ -69,9 +102,7 @@ def extract_metadata(slc_name, df_file_name, strategy='s3'):
 def main():
     """Example Command:
 
-    extract_metadata.py \
-        S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85 \
-        metadata.csv
+    extract_metadata.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85 metadata.csv
     """
     parser = ArgumentParser()
     parser.add_argument('slc_name')

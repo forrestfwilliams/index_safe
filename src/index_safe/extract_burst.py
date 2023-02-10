@@ -22,6 +22,17 @@ BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
 def extract_bytes_by_swath(url: str, metadata: utils.BurstMetadata, strategy: str = 's3') -> bytes:
+    """Extract bytes pertaining to a burst from a Sentinel-1 SLC archive using a GZIDX that represents
+    the entire swath. Index file must be in working directory.
+
+    Args:
+        url: url location of SLC archive
+        metadata: metadata object for burst to extract
+        strategy: strategy to use for download (s3 | http) s3 only works if runnning from us-west-2 region
+
+    Returns:
+        bytes representing a single burst
+    """
     gzidx_name = '_'.join(metadata.name.split('_')[:-1]) + '.gzidx'
 
     if strategy == 's3':
@@ -45,6 +56,17 @@ def extract_bytes_by_swath(url: str, metadata: utils.BurstMetadata, strategy: st
 
 
 def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, strategy: str = 's3') -> bytes:
+    """Extract bytes pertaining to a burst from a Sentinel-1 SLC archive using a GZIDX that represents
+    a single burst. Index file must be in working directory.
+
+    Args:
+        url: url location of SLC archive
+        metadata: metadata object for burst to extract
+        strategy: strategy to use for download (s3 | http) s3 only works if runnning from us-west-2 region
+
+    Returns:
+        bytes representing a single burst
+    """
     gzidx_name = Path(metadata.name).with_suffix('.gzidx').name
 
     range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop - 1}'
@@ -66,6 +88,7 @@ def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, strategy: st
     with open(gzidx_name, 'rb') as f:
         f.seek(85)
         gzidx = f.read()
+    assert gzidx[0:5] == 'GZIDX'
 
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = bytearray(length)
@@ -77,6 +100,15 @@ def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, strategy: st
 
 
 def burst_bytes_to_numpy(burst_bytes: bytes, shape: Iterable[int]) -> np.ndarray:
+    """Convert bytes representing a burst to numpy array.
+
+    Args:
+        burst_bytes: bytes of a burst
+        shape: tuple representing shape of the burst array (n_rows, n_cols)
+
+    Returns:
+        burst array with a CFloat data type
+    """
     tmp_array = np.frombuffer(burst_bytes, dtype=np.int16).astype(float)
     array = tmp_array.copy()
     array.dtype = 'complex'
@@ -85,6 +117,16 @@ def burst_bytes_to_numpy(burst_bytes: bytes, shape: Iterable[int]) -> np.ndarray
 
 
 def invalid_to_nodata(array: np.ndarray, valid_window: utils.Window, nodata_value: int = 0) -> np.ndarray:
+    """Use valid window information to set array values outside of valid window to nodata.
+
+    Args:
+        array: input burst array to modify
+        valid_window: window that will not be set to nodata
+        nodata: value used to represent nodata
+
+    Returns
+        modified burst array
+    """
     is_not_valid = np.ones(array.shape).astype(bool)
     is_not_valid[valid_window.ystart : valid_window.yend, valid_window.xstart : valid_window.xend] = False
     array[is_not_valid] = nodata_value
@@ -92,6 +134,15 @@ def invalid_to_nodata(array: np.ndarray, valid_window: utils.Window, nodata_valu
 
 
 def row_to_burst_entry(row: pd.Series) -> utils.BurstMetadata:
+    """Convert row of burst metadata dataframe to a burst metadata
+    object.
+
+    Args:
+        row: row of dataframe to convert
+
+    Returns:
+        burst metadata object
+    """
     shape = (row['n_rows'], row['n_columns'])
     index_offset = utils.Offset(row['index_start'], row['index_stop'])
     decompressed_offset = utils.Offset(row['offset_start'], row['offset_stop'])
@@ -102,8 +153,19 @@ def row_to_burst_entry(row: pd.Series) -> utils.BurstMetadata:
 
 
 def bytes_to_burst_entry(burst_name: str):
+    """Convert header bytes of burst-specifc
+    index file to a burst metadata object.
+    Index file must be in working directory.
+
+    Args:
+        burst_name: name of burst to get info for
+
+    Returns:
+        burst metadata object
+    """
     with open(Path(burst_name).with_suffix('.gzidx').name, 'rb') as f:
         byte_data = f.read(85)
+    assert byte_data[0:5] == 'BURST'
 
     slc_name = '_'.join(burst_name.split('_')[:-3])
     data = struct.unpack('<QQQQQQQQQQ', byte_data[5:85])
@@ -129,6 +191,16 @@ def bytes_to_burst_entry(burst_name: str):
 
 
 def array_to_raster(out_path: str, array: np.ndarray, fmt: str = 'GTiff') -> str:
+    """Save a burst array as gdal raster.
+
+    Args:
+        out_path: path to save file to
+        array: array to save as raster
+        fmt: file format to use
+
+    Returns:
+        path to saved raster
+    """
     driver = gdal.GetDriverByName(fmt)
     n_rows, n_cols = array.shape
     out_dataset = driver.Create(out_path, n_cols, n_rows, 1, gdal.GDT_CFloat32)
@@ -138,6 +210,16 @@ def array_to_raster(out_path: str, array: np.ndarray, fmt: str = 'GTiff') -> str
 
 
 def extract_burst_by_swath(burst_name: str, df_file_name: str) -> str:
+    """Extract burst from SLC in ASF archive using a swath-level index
+    file and a burst metadata csv. Index must be in working directory.
+
+    Args:
+        burst_name: name of burst to extract
+        df_file_name: path to csv file containing burst metadata
+
+    Returns:
+        path to saved burst raster
+    """
     df = pd.read_csv(df_file_name)
     single_burst = df.loc[df.name == burst_name].squeeze()
     burst_metadata = row_to_burst_entry(single_burst)
@@ -151,6 +233,15 @@ def extract_burst_by_swath(burst_name: str, df_file_name: str) -> str:
 
 
 def extract_burst_by_burst(burst_name: str) -> str:
+    """Extract burst from SLC in ASF archive using a burst-level index
+    file. Index must be in working directory.
+
+    Args:
+        burst_name: name of burst to extract
+
+    Returns:
+        path to saved burst raster
+    """
     burst_metadata = bytes_to_burst_entry(burst_name)
 
     url = utils.get_download_url(burst_metadata.slc)
@@ -164,9 +255,7 @@ def extract_burst_by_burst(burst_name: str) -> str:
 def main():
     """Example Command:
 
-    extract_burst.py \
-        S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_0.tiff \
-        bursts.csv
+    extract_burst.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_0.tiff
     """
     parser = ArgumentParser()
     parser.add_argument('burst')

@@ -115,7 +115,7 @@ def create_xml_metadata(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> utils.
 
 
 def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
-    """Create name for a burst tiff
+    """Create name for a burst tiff.
 
     Args:
         slc_name: Name of SLC
@@ -131,7 +131,8 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
 
 
 def create_gzidx_name(slc_name: str, swath_name: str) -> str:
-    """Create name for a swath index file
+    """Create name for a swath index file. Only used for
+    swath-based workflow.
 
     Args:
         slc_name: Name of SLC
@@ -146,16 +147,16 @@ def create_gzidx_name(slc_name: str, swath_name: str) -> str:
     return '_'.join(all_parts) + '.gzidx'
 
 
-def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
-    """Create objects containing information needed to download burst tiff from compressed file directly,
-    and remove invalid data, for a swath tiff.
+def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[bytes]:
+    """Create a burst-specificindex containing information needed to download burst tiff from compressed
+    SAFE file directly, and remove invalid data.
 
     Args:
         zipped_safe_path: Path to zipped SAFE
         zinfo: ZipInfo object for desired XML
 
     Returns:
-        BurstMetadata objects containing information needed to download and remove invalid data
+        byte objects containing information needed to download and remove invalid data
     """
     slc_name = Path(zipped_safe_path).with_suffix('').name
     tiff_name = Path(zinfo.filename).name
@@ -175,7 +176,7 @@ def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iter
 
 
 def create_index_by_swath(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
-    """Create objects containing information needed to download burst tiff from compressed file directly,
+    """Create objects containing information needed to download burst tiff from compressed SAFE file directly,
     and remove invalid data, for a swath tiff.
 
     Args:
@@ -238,15 +239,19 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
 def index_safe(slc_name: str, by_burst: bool = True, keep: bool = True):
     """Create the index and other metadata needed to directly download
     and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
-    this information in csv files.
+    this information in csv files. Can create indexes at either the swath
+    or individual burst level. If burst level indexes are created
+    (the default), all information for extracting a burst is included in
+    the index file.
 
     Args:
         slc_name: Scene name to index
+        by_burst: Whether or not to create burst-specific indexes
         keep: If False, delete SLC zip after indexing
 
     Returns:
-        No function outputs, but saves a metadata.csv and burst.csv to
-        the working directory
+        No function outputs, but saves a metadata.csv, burst indexes, and
+        optionally a burst.csv to the working directory
     """
     zipped_safe_path = f'{slc_name}.zip'
     if not Path(zipped_safe_path).exists():
