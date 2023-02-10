@@ -88,7 +88,7 @@ def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, strategy: st
     with open(gzidx_name, 'rb') as f:
         f.seek(85)
         gzidx = f.read()
-    assert gzidx[0:5] == 'GZIDX'
+    assert gzidx[0:5] == b'GZIDX'
 
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = bytearray(length)
@@ -165,7 +165,7 @@ def bytes_to_burst_entry(burst_name: str):
     """
     with open(Path(burst_name).with_suffix('.gzidx').name, 'rb') as f:
         byte_data = f.read(85)
-    assert byte_data[0:5] == 'BURST'
+    assert byte_data[0:5] == b'BURST'
 
     slc_name = '_'.join(burst_name.split('_')[:-3])
     data = struct.unpack('<QQQQQQQQQQ', byte_data[5:85])
