@@ -14,6 +14,7 @@ import boto3
 import indexed_gzip as igzip
 import numpy as np
 import requests
+import zran
 from tqdm import tqdm
 
 KB = 1024
@@ -210,28 +211,25 @@ def parse_gzidx(gzidx: bytes) -> Iterable:
 
 
 class ZipIndexer:
-    """Class for creating gzidx indexes for zip archive members
-    that are compatible with the indexed_gzip library.
+    """Class for creating dflidx indexes for zip archive members
+    that are compatible with the zran library.
     """
 
-    def __init__(self, zip_path: str, member_name: str, spacing: int = 2**20):
+    def __init__(self, zip_path: str, spacing: int = 2**20):
         self.zip_path = zip_path
-        self.archive_size = Path(self.zip_path).stat().st_size
-        self.gz_header_length = 10
         self.spacing = spacing
-        self.gzidx_header_length = 35
-        self.gzidx_point_length = 18
-        self.base_gzidx, self.member_offset = self.create_base_gzidx(member_name)
 
-    def create_base_gzidx(self, member_name: str) -> Iterable:
-        """Build base GZIDX index for a Zip member file that has
+    def create_dflidx(self, member_name: str, starts: Iterable[int] = [], stops: Iterable[int] = []) -> Iterable:
+        """Build base DFLIDX index for a Zip member file that has
         been compresed using zlib (DEFLATE).
 
         Args:
-            Name of zip member
+            member_name: name of zip member
+            starts: uncompressed locations to provide indexes before
+            stops: uncompressed locations to provide indexes after
 
         Returns:
-            bytes of gzidx, and compressed range of member in zip archive
+            bytes of dflidx, and compressed range of member in zip archive
         """
         with zipfile.ZipFile(self.zip_path) as f:
             zinfo = [x for x in f.infolist() if member_name in x.filename][0]
@@ -240,84 +238,13 @@ class ZipIndexer:
         with open(self.zip_path, 'rb') as f:
             f.seek(offset.start)
             body = f.read(offset.stop - offset.start)
-        gz_body = wrap_deflate_as_gz(body, zinfo)
+        
+        index = zran.build_deflate_index(io.BytesIO(body), span = self.spacing)
+        desired_points = zran.modify_points(index.points, starts, stops, offset = offset.start)
+        new_length = desired_points[0].outloc - desired_points[-1].outloc
+        dflidx = zran.create_index_file(index.mode, new_length, len(desired_points), desired_points)
 
-        with tempfile.NamedTemporaryFile() as tmp_gzidx:
-            with igzip.IndexedGzipFile(io.BytesIO(gz_body), spacing=self.spacing) as f:
-                f.build_full_index()
-                f.export_index(tmp_gzidx.name)
-
-            with open(tmp_gzidx.name, 'rb') as f:
-                base_gzidx = f.read()
-
-        return base_gzidx, offset
-
-    def build_gzidx(
-        self, gzidx_path: str = None, starts: Iterable[int] = [], stops: Iterable[int] = [], relative: bool = False
-    ) -> bytes | str:
-        """Modifies a base GZIDX index so that it contains only the relevant data.
-
-        Args:
-            gzidx_path: optional save path for modified GZIDX, if actual index is returned
-            starts: uncompressed locations to provide indexes before
-            stops: uncompressed locations to provide indexes after
-            relative: if True, index will be valid entire zip archive, if False index will be localized to the first
-                point in the index
-
-        Returns:
-            bytes that make up index, or path to the saved index
-        """
-        point_array, _, _, window_size, n_points = parse_gzidx(self.base_gzidx)
-
-        # FIXME Assume only first window entry is zero
-        length_to_window = self.gzidx_header_length + (self.gzidx_point_length * n_points)
-        window_offsets = np.arange(0, point_array[1:].shape[0] * window_size, window_size) + length_to_window
-        window_offsets = np.append([0], window_offsets, axis=0)
-
-        point_array = np.append(point_array, np.expand_dims(window_offsets, axis=1), axis=1)
-        if starts or stops:
-            start_indexes = [get_closest_index(point_array[:, 1], x) for x in starts]
-            stop_indexes = [get_closest_index(point_array[:, 1], x, less_than=False) for x in stops]
-
-            if 0 not in start_indexes:
-                start_indexes.append(min(start_indexes) - 1)
-
-            point_array = point_array[sorted(start_indexes + stop_indexes), :].copy()
-
-        if relative:
-            data_start = point_array[0, 0] - self.gz_header_length + self.member_offset.start
-            data_stop = point_array[-1, 0] - self.gz_header_length + self.member_offset.start
-            self.index_offset = Offset(data_start, data_stop)
-
-            point_array[:, 0] -= point_array[0, 0] - self.gz_header_length
-            filesize_bytes = struct.pack('<Q', max(point_array[:, 0]))
-        else:
-            filesize_bytes = struct.pack('<Q', self.archive_size)
-            self.index_offset = Offset(0, self.archive_size)
-            point_array[:, 0] += self.member_offset.start - self.gz_header_length
-
-        point_bytes = []
-        window_bytes = []
-        for row in point_array:
-            point_entry = struct.pack('<QQBB', *row[:4].tolist())
-
-            if row[4] == 0:
-                window_entry = b''
-            else:
-                window_entry = self.base_gzidx[row[4] : row[4] + window_size]
-
-            point_bytes.append(point_entry)
-            window_bytes.append(window_entry)
-
-        header = self.base_gzidx[:7] + filesize_bytes + self.base_gzidx[15:31] + struct.pack('<I', point_array.shape[0])
-        altered_gzidx = header + b''.join(point_bytes) + b''.join(window_bytes)
-
-        if gzidx_path:
-            with open(gzidx_path, 'wb') as fobj:
-                fobj.write(altered_gzidx)
-            return gzidx_path
-
-        return altered_gzidx
+        return dflidx
 
 
 def get_download_url(scene: str) -> str:
