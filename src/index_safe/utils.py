@@ -22,9 +22,10 @@ MB = 1024 * KB
 SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
+
 # FIXME json is not actual name of output
 def get_tmp_access_keys(save_path: str = 'credentials.json') -> dict:
-    """ Get temporary AWS access keys for direct
+    """Get temporary AWS access keys for direct
     access to ASF data in S3.
 
     Args:
@@ -44,7 +45,7 @@ def get_tmp_access_keys(save_path: str = 'credentials.json') -> dict:
 
 
 def get_credentials() -> dict:
-    """ Gets temporary ASF AWS credentials from
+    """Gets temporary ASF AWS credentials from
     file or request new credentials if credentials
     are not present or expired.
 
@@ -134,7 +135,7 @@ class XmlMetadata:
         return (self.name, self.slc, self.offset.start, self.offset.stop)
 
 
-def get_closest_index(array: np.ndarray, value: int, less_than: bool=True) -> int:
+def get_closest_index(array: np.ndarray, value: int, less_than: bool = True) -> int:
     """Identifies index of closest value in a numpy array to input value.
 
     Args:
@@ -215,11 +216,24 @@ class ZipIndexer:
     that are compatible with the zran library.
     """
 
-    def __init__(self, zip_path: str, spacing: int = 2**20):
+    def __init__(self, zip_path: str, member_name: str, spacing: int = 2**20):
         self.zip_path = zip_path
         self.spacing = spacing
+        self.member_name = member_name
+        self.index = None
 
-    def create_dflidx(self, member_name: str, starts: Iterable[int] = [], stops: Iterable[int] = []) -> Iterable:
+    def create_full_dflidx(self):
+        with zipfile.ZipFile(self.zip_path) as f:
+            zinfo = [x for x in f.infolist() if self.member_name in x.filename][0]
+
+        self.file_offset = get_zip_compressed_offset(self.zip_path, zinfo)
+        with open(self.zip_path, 'rb') as f:
+            f.seek(self.file_offset.start)
+            self.body = f.read(self.file_offset.stop - self.file_offset.start)
+
+        self.index = zran.build_deflate_index(self.body, span=self.spacing)
+
+    def subset_dflidx(self, starts: Iterable[int] = [], stops: Iterable[int] = []) -> Iterable:
         """Build base DFLIDX index for a Zip member file that has
         been compresed using zlib (DEFLATE).
 
@@ -231,20 +245,11 @@ class ZipIndexer:
         Returns:
             bytes of dflidx, and compressed range of member in zip archive
         """
-        with zipfile.ZipFile(self.zip_path) as f:
-            zinfo = [x for x in f.infolist() if member_name in x.filename][0]
-
-        offset = get_zip_compressed_offset(self.zip_path, zinfo)
-        with open(self.zip_path, 'rb') as f:
-            f.seek(offset.start)
-            body = f.read(offset.stop - offset.start)
-        
-        index = zran.build_deflate_index(io.BytesIO(body), span = self.spacing)
-        desired_points = zran.modify_points(index.points, starts, stops, offset = offset.start)
-        new_length = desired_points[0].outloc - desired_points[-1].outloc
-        dflidx = zran.create_index_file(index.mode, new_length, len(desired_points), desired_points)
-
-        return dflidx
+        interior_range, desired_points = zran.modify_points(self.index.points, starts, stops)
+        new_length = desired_points[-1].outloc - desired_points[0].outloc
+        dflidx = zran.create_index_file(self.index.mode, new_length, len(desired_points), desired_points)
+        index_offset = Offset(self.file_offset.start + interior_range[0], self.file_offset.start + interior_range[1])
+        return index_offset, dflidx
 
 
 def get_download_url(scene: str) -> str:

@@ -163,14 +163,15 @@ def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iter
     burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
 
     bursts = {}
-    indexer = utils.ZipIndexer(zipped_safe_path)
+    indexer = utils.ZipIndexer(zipped_safe_path, tiff_name)
+    indexer.create_full_dflidx()
     for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
         bstidx_name = Path(burst_name).with_suffix('.bstidx').name
-        dflidx = indexer.create_dflidx(tiff_name, starts=[burst_offset.start], stops=[burst_offset.stop])
-        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, indexer.index_offset, burst_offset, burst_window)
+        index_offset, dflidx = indexer.subset_dflidx(starts=[burst_offset.start], stops=[burst_offset.stop])
+        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, index_offset, burst_offset, burst_window)
 
-        bursts[idx_name] = burst.to_bytes() + index
+        bursts[bstidx_name] = burst.to_bytes() + dflidx
 
     return bursts
 
