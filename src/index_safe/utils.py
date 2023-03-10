@@ -231,7 +231,7 @@ class ZipIndexer:
             f.seek(self.file_offset.start)
             self.body = f.read(self.file_offset.stop - self.file_offset.start)
 
-        self.index = zran.build_deflate_index(self.body, span=self.spacing)
+        self.index = zran.Index.create_index(self.body, span=self.spacing)
 
     def subset_dflidx(self, starts: Iterable[int] = [], stops: Iterable[int] = []) -> Iterable:
         """Build base DFLIDX index for a Zip member file that has
@@ -245,11 +245,13 @@ class ZipIndexer:
         Returns:
             bytes of dflidx, and compressed range of member in zip archive
         """
-        interior_range, desired_points = zran.modify_points(self.index.points, starts, stops)
-        new_length = desired_points[-1].outloc - desired_points[0].outloc
-        dflidx = zran.create_index_file(self.index.mode, new_length, len(desired_points), desired_points)
-        index_offset = Offset(self.file_offset.start + interior_range[0], self.file_offset.start + interior_range[1])
-        return index_offset, dflidx
+        compressed_offset, uncompressed_offset, index = self.index.create_modified_index(starts, stops)
+        dflidx = index.create_index_file()
+        compressed_offset = Offset(
+            self.file_offset.start + compressed_offset[0], self.file_offset.start + compressed_offset[1]
+        )
+        uncompressed_offset = Offset(uncompressed_offset[0], uncompressed_offset[1])
+        return compressed_offset, uncompressed_offset, dflidx
 
 
 def get_download_url(scene: str) -> str:
