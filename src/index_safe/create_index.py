@@ -169,9 +169,10 @@ def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iter
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
         bstidx_name = Path(burst_name).with_suffix('.bstidx').name
 
-        compressed_offset, uncompressed_offset, dflidx = indexer.subset_dflidx(
+        compressed_offset, uncompressed_offset, modified_index = indexer.subset_dflidx(
             starts=[burst_offset.start], stops=[burst_offset.stop]
         )
+        dflidx = modified_index.create_index_file()
 
         index_burst_offset = utils.Offset(
             burst_offset.start - uncompressed_offset.start, burst_offset.stop - uncompressed_offset.start

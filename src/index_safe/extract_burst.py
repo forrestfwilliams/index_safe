@@ -156,7 +156,7 @@ def bytes_to_burst_entry(burst_name: str):
     with open(Path(burst_name).with_suffix('.bstidx').name, 'rb') as f:
         byte_data = f.read(85)
         index_data = f.read()
-    
+
     index = zran.Index.parse_index_file(index_data)
 
     assert byte_data[0:5] == b'BURST'

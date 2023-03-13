@@ -245,13 +245,21 @@ class ZipIndexer:
         Returns:
             bytes of dflidx, and compressed range of member in zip archive
         """
-        compressed_offset, uncompressed_offset, index = self.index.create_modified_index(starts, stops)
-        dflidx = index.create_index_file()
+        compressed_offset, uncompressed_offset, modified_index = self.index.create_modified_index(starts, stops)
         compressed_offset = Offset(
-            self.file_offset.start + compressed_offset[0], self.file_offset.start + compressed_offset[1]
+            compressed_offset[0] + self.file_offset.start, compressed_offset[1] + self.file_offset.start
         )
         uncompressed_offset = Offset(uncompressed_offset[0], uncompressed_offset[1])
-        return compressed_offset, uncompressed_offset, dflidx
+        return compressed_offset, uncompressed_offset, modified_index
+
+
+def local_decompress(index, compressed_offset, start, length, data=None):
+    if not data:
+        with open('S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip', 'rb') as f:
+            f.seek(compressed_offset.start)
+            data = f.read(compressed_offset.stop - compressed_offset.start)
+    uncompressed = zran.decompress(data, index, start, length)
+    return uncompressed
 
 
 def get_download_url(scene: str) -> str:

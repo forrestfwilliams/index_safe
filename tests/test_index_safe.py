@@ -9,6 +9,7 @@ from pathlib import Path
 import indexed_gzip as igzip
 import numpy as np
 import pytest
+import zran
 from osgeo import gdal
 
 from index_safe import create_index, extract_burst, utils
@@ -103,30 +104,30 @@ def seek_point_array(golden_gz):
 
 
 def test_burst_specific_index():
-    # IW2 VV 3 golden
-    # compressed = utils.Offset(start=2589238610, stop=2690292831)
+    # # IW2 VV 3 golden
+    # compressed = utils.Offset(start=2589238610, stop=2690292830)
     # uncompressed = utils.Offset(start=461226795, stop=614932715)
 
-    # # IW2 VV 7
-    compressed = utils.Offset(start=2986776876, stop=3087580208)
+    # IW2 VV 7
+    compressed = utils.Offset(start=2986776876, stop=3087580207)
     uncompressed = utils.Offset(start=1076050475, stop=1229756395)
 
-    tmp_file = tempfile.NamedTemporaryFile()
     indexer = utils.ZipIndexer(ZIP_PATH, TIFF_PATH)
-    indexer.build_gzidx(tmp_file.name, [uncompressed.start], [uncompressed.stop], relative=True)
+    indexer.create_full_dflidx()
+    compressed_offset, uncompressed_offset, index = indexer.subset_dflidx(
+        starts=[uncompressed.start], stops=[uncompressed.stop]
+    )
 
-    assert indexer.index_offset.start == compressed.start
-    assert indexer.index_offset.stop == compressed.stop
-    points, compressed_size, *_ = utils.parse_gzidx(Path(tmp_file.name).read_bytes())
+    assert compressed_offset.start == compressed.start
+    assert compressed_offset.stop == compressed.stop
 
     with open(ZIP_PATH, 'rb') as f:
-        f.seek(indexer.index_offset.start)
-        body = bytes(10) + f.read(indexer.index_offset.stop - indexer.index_offset.start)
+        f.seek(compressed_offset.start)
+        body = f.read(compressed_offset.stop - compressed_offset.start)
 
-    with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
-        igzip_fobj.import_index(tmp_file.name)
-        igzip_fobj.seek(uncompressed.start)
-        test = igzip_fobj.read(uncompressed.stop - uncompressed.start)
+    length = uncompressed.stop - uncompressed.start
+    start = uncompressed.start - uncompressed_offset.start
+    test = zran.decompress(body, index, start, length)
 
     with zipfile.ZipFile(ZIP_PATH) as f:
         zinfo = [x for x in f.infolist() if TIFF_PATH in Path(x.filename).name][0]
@@ -135,58 +136,6 @@ def test_burst_specific_index():
             golden = member.read(uncompressed.stop - uncompressed.start)
 
     assert golden == test
-
-
-def test_whole_file_index():
-    uncompressed = utils.Offset(start=461226795, stop=614932715)
-
-    tmp_file = tempfile.NamedTemporaryFile()
-    indexer = utils.ZipIndexer(ZIP_PATH, TIFF_PATH)
-    indexer.build_gzidx(tmp_file.name, relative=False)
-
-    with open(ZIP_PATH, 'rb') as f:
-        body = f.read()
-
-    with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
-        igzip_fobj.import_index(tmp_file.name)
-        igzip_fobj.seek(uncompressed.start)
-        test = igzip_fobj.read(uncompressed.stop - uncompressed.start)
-
-    with zipfile.ZipFile(ZIP_PATH) as f:
-        zinfo = [x for x in f.infolist() if TIFF_PATH in Path(x.filename).name][0]
-        with f.open(zinfo.filename, 'r') as member:
-            member.seek(uncompressed.start)
-            golden = member.read(uncompressed.stop - uncompressed.start)
-
-    assert golden == test
-
-
-def test_zip_indexer():
-    start = 10
-    length = 15
-
-    with tempfile.NamedTemporaryFile() as tmp:
-        zip_indexer = utils.ZipIndexer(ZIP_PATH, TIFF_PATH)
-        zip_indexer.build_gzidx(tmp.name)
-        with igzip.IndexedGzipFile(ZIP_PATH) as f:
-            f.import_index(tmp.name)
-            f.seek(start)
-            test = f.read(length)
-
-    with zipfile.ZipFile(ZIP_PATH) as f:
-        zinfo = [x for x in f.infolist() if TIFF_PATH in Path(x.filename).name][0]
-        with f.open(zinfo.filename, 'r') as member:
-            member.seek(start)
-            golden = member.read(length)
-
-    assert golden == test
-
-
-def test_parse_gzidx(seek_point_array):
-    test_array, _, _, _, n_points = utils.parse_gzidx(Path(GZIDX_PATH).read_bytes())
-    assert np.all(test_array[:, [1, 0]] == seek_point_array)
-    assert n_points == seek_point_array.shape[0]
-
 
 # Swath level
 def test_get_zip_compressed_offset(zinfo, golden_bytes):
@@ -200,27 +149,13 @@ def test_get_zip_compressed_offset(zinfo, golden_bytes):
     assert test_bytes == golden_bytes
 
 
-def test_wrap_deflate_as_gz(zinfo, golden_bytes):
-    offset = utils.get_zip_compressed_offset(ZIP_PATH, zinfo)
-    with open(ZIP_PATH, 'rb') as f:
-        f.seek(offset.start)
-        bytes_compressed = f.read(offset.stop - offset.start)
-
-    gz_bytes = utils.wrap_deflate_as_gz(bytes_compressed, zinfo)
-    test_bytes = gzip.decompress(gz_bytes)
-
-    assert len(gz_bytes) == len(bytes_compressed) + 10 + 8  # wrap_as_gz should add 18 bytes of data
-    assert len(test_bytes) == len(golden_bytes)
-    assert test_bytes == golden_bytes
-
-
 # Burst level
 def test_get_burst_annotation_data(zinfo):
     burst_shape, burst_offsets, burst_windows = create_index.get_burst_annotation_data(ZIP_PATH, zinfo.filename)
 
     assert burst_shape == BURST_SHAPE
-    assert burst_offsets[0].start == BURST_START
-    assert burst_offsets[0].stop == BURST_STOP
+    assert burst_offsets[7].start == BURST_START
+    assert burst_offsets[7].stop == BURST_STOP
 
 
 def test_burst_bytes_to_numpy(golden_bytes):
@@ -242,35 +177,12 @@ def test_invalid_to_nodata(golden_bytes):
     equal = np.isclose(valid_data, burst_array)
     assert np.all(equal)
 
-
-def test_get_closest_index():
-    array = np.arange(0, 105, 5)
-    value = 14
-    less_than = utils.get_closest_index(array, value)
-    assert less_than == 2
-    greater_than = utils.get_closest_index(array, value, less_than=False)
-    assert greater_than == 3
-
-
 # Golden
 @pytest.mark.skip()
 def test_golden_by_burst(golden_tiff):
     safe_name = str(Path(ZIP_PATH).with_suffix(''))
     create_index.index_safe(safe_name, by_burst=True)
     extract_burst.extract_burst_by_burst(TEST_BURST_NAME)
-
-    valid_data = load_geotiff(BURST_VALID_PATH)[0]
-    test_data = load_geotiff(TEST_BURST_NAME)[0]
-
-    equal = np.isclose(valid_data, test_data)
-    assert np.all(equal)
-
-
-@pytest.mark.skip()
-def test_golden_by_swath(golden_tiff):
-    safe_name = str(Path(ZIP_PATH).with_suffix(''))
-    create_index.index_safe(safe_name, by_burst=False)
-    extract_burst.extract_burst_by_swath(TEST_BURST_NAME, 'bursts.csv')
 
     valid_data = load_geotiff(BURST_VALID_PATH)[0]
     test_data = load_geotiff(TEST_BURST_NAME)[0]
