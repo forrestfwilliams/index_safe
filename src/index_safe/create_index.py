@@ -4,7 +4,6 @@ import xml.etree.ElementTree as ET
 import zipfile
 from argparse import ArgumentParser
 from collections import ChainMap
-from itertools import chain
 from pathlib import Path
 from typing import Iterable
 
@@ -130,24 +129,7 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
     return '_'.join(all_parts) + '.tiff'
 
 
-def create_gzidx_name(slc_name: str, swath_name: str) -> str:
-    """Create name for a swath index file. Only used for
-    swath-based workflow.
-
-    Args:
-        slc_name: Name of SLC
-        swath_name: Name of swath
-        burst_index: Zero-indexed burst number in swath
-
-    Returns:
-        Name of swath index
-    """
-    _, swath, _, polarization, *_ = swath_name.split('-')
-    all_parts = [slc_name, swath.upper(), polarization.upper()]
-    return '_'.join(all_parts) + '.gzidx'
-
-
-def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[bytes]:
+def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[bytes]:
     """Create a burst-specificindex containing information needed to download burst tiff from compressed
     SAFE file directly, and remove invalid data.
 
@@ -186,34 +168,6 @@ def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iter
     return bursts
 
 
-def create_index_by_swath(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
-    """Create objects containing information needed to download burst tiff from compressed SAFE file directly,
-    and remove invalid data, for a swath tiff.
-
-    Args:
-        zipped_safe_path: Path to zipped SAFE
-        zinfo: ZipInfo object for desired XML
-
-    Returns:
-        BurstMetadata objects containing information needed to download and remove invalid data
-    """
-    slc_name = Path(zipped_safe_path).with_suffix('').name
-    tiff_name = Path(zinfo.filename).name
-    gzidx_name = create_gzidx_name(slc_name, tiff_name)
-
-    burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
-
-    indexer = utils.ZipIndexer(zipped_safe_path, Path(zinfo.filename).name)
-    indexer.build_gzidx(gzidx_name, starts=[x.start for x in burst_offsets], stops=[x.stop for x in burst_offsets])
-
-    bursts = []
-    for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
-        burst_name = create_burst_name(slc_name, zinfo.filename, i)
-        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, indexer.index_offset, burst_offset, burst_window)
-        bursts.append(burst)
-    return bursts
-
-
 def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_name: str) -> str:
     """Save a list of metadata objects as a csv.
 
@@ -247,22 +201,18 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
     return out_name
 
 
-def index_safe(slc_name: str, by_burst: bool = True, keep: bool = True):
+def index_safe(slc_name: str, keep: bool = True):
     """Create the index and other metadata needed to directly download
     and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
-    this information in csv files. Can create indexes at either the swath
-    or individual burst level. If burst level indexes are created
-    (the default), all information for extracting a burst is included in
+    this information in csv files. All information for extracting a burst is included in
     the index file.
 
     Args:
         slc_name: Scene name to index
-        by_burst: Whether or not to create burst-specific indexes
         keep: If False, delete SLC zip after indexing
 
     Returns:
-        No function outputs, but saves a metadata.csv, burst indexes, and
-        optionally a burst.csv to the working directory
+        No function outputs, but saves a metadata.csv, burst indexes to file
     """
     zipped_safe_path = f'{slc_name}.zip'
     if not Path(zipped_safe_path).exists():
@@ -281,12 +231,8 @@ def index_safe(slc_name: str, by_burst: bool = True, keep: bool = True):
     save_as_csv(xml_metadatas, 'metadata.csv')
 
     print('Reading Bursts...')
-    if by_burst:
-        burst_metadatas = dict(ChainMap(*[create_index_by_burst(zipped_safe_path, x) for x in tqdm(tiffs)]))
-        [Path(key).write_bytes(value) for key, value in burst_metadatas.items()]
-    else:
-        burst_metadatas = list(chain(*[create_index_by_swath(zipped_safe_path, x) for x in tqdm(tiffs)]))
-        save_as_csv(burst_metadatas, 'bursts.csv')
+    burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    [Path(key).write_bytes(value) for key, value in burst_metadatas.items()]
 
     if not keep:
         os.remove(zipped_safe_path)

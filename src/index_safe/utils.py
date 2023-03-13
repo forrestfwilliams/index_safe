@@ -1,18 +1,13 @@
-import io
 import json
 import os
 import struct
-import tempfile
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from gzip import _create_simple_gzip_header
 from pathlib import Path
 from typing import Iterable
 
 import boto3
-import indexed_gzip as igzip
-import numpy as np
 import requests
 import zran
 from tqdm import tqdm
@@ -21,50 +16,6 @@ KB = 1024
 MB = 1024 * KB
 SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
-
-
-# FIXME json is not actual name of output
-def get_tmp_access_keys(save_path: str = 'credentials.json') -> dict:
-    """Get temporary AWS access keys for direct
-    access to ASF data in S3.
-
-    Args:
-        save_path: path to save credentials to
-
-    Returns:
-        dictionary of credentials
-    """
-    token = os.environ['EDL_TOKEN']
-    resp = requests.get(
-        'https://sentinel1.asf.alaska.edu/s3credentials',
-        headers={'Authorization': f'Bearer {token}'},
-    )
-    resp.raise_for_status()
-    save_path.write_bytes(resp.content)
-    return resp.json()
-
-
-def get_credentials() -> dict:
-    """Gets temporary ASF AWS credentials from
-    file or request new credentials if credentials
-    are not present or expired.
-
-    Returns:
-        dictionary of credentials
-    """
-    credential_file = Path('credentials.json')
-    if not credential_file.exists():
-        credentials = get_tmp_access_keys(credential_file)
-        return credentials
-
-    credentials = json.loads(credential_file.read_text())
-    expiration_time = datetime.fromisoformat(credentials['expiration'])
-    current_time = datetime.now(timezone.utc)
-
-    if current_time >= expiration_time:
-        credentials = get_tmp_access_keys(credential_file)
-
-    return credentials
 
 
 # TODO can also be np.array
@@ -135,131 +86,48 @@ class XmlMetadata:
         return (self.name, self.slc, self.offset.start, self.offset.stop)
 
 
-def get_closest_index(array: np.ndarray, value: int, less_than: bool = True) -> int:
-    """Identifies index of closest value in a numpy array to input value.
+# FIXME json is not actual name of output
+def get_tmp_access_keys(save_path: str = 'credentials.json') -> dict:
+    """Get temporary AWS access keys for direct
+    access to ASF data in S3.
 
     Args:
-        array: 1d np array
-        value: value that you want to find closes index for in array
-        less_than: whether to return closest index that <= or >= value
+        save_path: path to save credentials to
 
     Returns:
-        index of closest value
+        dictionary of credentials
     """
-    if less_than:
-        valid_options = array[array <= value]
-    else:
-        valid_options = array[array >= value]
-    closest_number = valid_options[np.abs(valid_options - value).argmin()]
-    closest_index = int(np.argwhere(array == closest_number))
-    return closest_index
+    token = os.environ['EDL_TOKEN']
+    resp = requests.get(
+        'https://sentinel1.asf.alaska.edu/s3credentials',
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    resp.raise_for_status()
+    save_path.write_bytes(resp.content)
+    return resp.json()
 
 
-def wrap_deflate_as_gz(payload: bytes, zinfo: zipfile.ZipInfo) -> bytes:
-    """Add a GZIP-style header and footer to a raw DEFLATE byte
-    object based on information from a ZipInfo object.
-
-    Args:
-        payload: raw DEFLATE bytes (no header or footer)
-        zinfo: the ZipInfo object associated with the payload
+def get_credentials() -> dict:
+    """Gets temporary ASF AWS credentials from
+    file or request new credentials if credentials
+    are not present or expired.
 
     Returns:
-        {10-byte header}DEFLATE_PAYLOAD{CRC}{filesize % 2**32}
+        dictionary of credentials
     """
-    header = _create_simple_gzip_header(1)
-    trailer = struct.pack("<LL", zinfo.CRC, (zinfo.file_size & 0xFFFFFFFF))
-    gz_wrapped = header + payload + trailer
-    return gz_wrapped
+    credential_file = Path('credentials.json')
+    if not credential_file.exists():
+        credentials = get_tmp_access_keys(credential_file)
+        return credentials
 
+    credentials = json.loads(credential_file.read_text())
+    expiration_time = datetime.fromisoformat(credentials['expiration'])
+    current_time = datetime.now(timezone.utc)
 
-def get_zip_compressed_offset(zip_path: str, zinfo: zipfile.ZipInfo) -> Offset:
-    """Get the byte offset (beginning byte and end byte inclusive) for a member
-    of a zip archive.
+    if current_time >= expiration_time:
+        credentials = get_tmp_access_keys(credential_file)
 
-    Args:
-        zip_path: path to zip file on disk
-        zinfo: the ZipInfo object associated with the zip member to get offset for
-
-    Returns:
-        byte offset (start and end) for zip member
-    """
-    with open(zip_path, 'rb') as f:
-        f.seek(zinfo.header_offset)
-        data = f.read(30)
-
-    n = int.from_bytes(data[26:28], "little")
-    m = int.from_bytes(data[28:30], "little")
-
-    data_start = zinfo.header_offset + n + m + 30
-    data_stop = data_start + zinfo.compress_size
-    return Offset(data_start, data_stop)
-
-
-def parse_gzidx(gzidx: bytes) -> Iterable:
-    """Parse bytes of GZIDX file to return relevant information.
-
-    Args:
-        gzidx: bytes of a gzidx file
-
-    Returns
-        np.array of index points, compressed file size,
-        uncompressed file size, window size, and number of index points
-    """
-    compressed_size, uncompressed_size, point_spacing, window_size, n_points = struct.unpack('<QQIII', gzidx[7:35])
-    raw_points = gzidx[35 : 35 + n_points * 18]
-    points = np.array([struct.unpack('<QQBB', raw_points[18 * i : 18 * (i + 1)]) for i in range(n_points)])
-    return points, compressed_size, uncompressed_size, window_size, n_points
-
-
-class ZipIndexer:
-    """Class for creating dflidx indexes for zip archive members
-    that are compatible with the zran library.
-    """
-
-    def __init__(self, zip_path: str, member_name: str, spacing: int = 2**20):
-        self.zip_path = zip_path
-        self.spacing = spacing
-        self.member_name = member_name
-        self.index = None
-
-    def create_full_dflidx(self):
-        with zipfile.ZipFile(self.zip_path) as f:
-            zinfo = [x for x in f.infolist() if self.member_name in x.filename][0]
-
-        self.file_offset = get_zip_compressed_offset(self.zip_path, zinfo)
-        with open(self.zip_path, 'rb') as f:
-            f.seek(self.file_offset.start)
-            self.body = f.read(self.file_offset.stop - self.file_offset.start)
-
-        self.index = zran.Index.create_index(self.body, span=self.spacing)
-
-    def subset_dflidx(self, starts: Iterable[int] = [], stops: Iterable[int] = []) -> Iterable:
-        """Build base DFLIDX index for a Zip member file that has
-        been compresed using zlib (DEFLATE).
-
-        Args:
-            member_name: name of zip member
-            starts: uncompressed locations to provide indexes before
-            stops: uncompressed locations to provide indexes after
-
-        Returns:
-            bytes of dflidx, and compressed range of member in zip archive
-        """
-        compressed_offset, uncompressed_offset, modified_index = self.index.create_modified_index(starts, stops)
-        compressed_offset = Offset(
-            compressed_offset[0] + self.file_offset.start, compressed_offset[1] + self.file_offset.start
-        )
-        uncompressed_offset = Offset(uncompressed_offset[0], uncompressed_offset[1])
-        return compressed_offset, uncompressed_offset, modified_index
-
-
-def local_decompress(index, compressed_offset, start, length, data=None):
-    if not data:
-        with open('S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.zip', 'rb') as f:
-            f.seek(compressed_offset.start)
-            data = f.read(compressed_offset.stop - compressed_offset.start)
-    uncompressed = zran.decompress(data, index, start, length)
-    return uncompressed
+    return credentials
 
 
 def get_download_url(scene: str) -> str:
@@ -317,3 +185,68 @@ def download_slc(scene: str, strategy='s3') -> str:
                             f.write(chunk)
                             pbar.update(len(chunk))
         session.close()
+
+
+def get_zip_compressed_offset(zip_path: str, zinfo: zipfile.ZipInfo) -> Offset:
+    """Get the byte offset (beginning byte and end byte inclusive) for a member
+    of a zip archive.
+
+    Args:
+        zip_path: path to zip file on disk
+        zinfo: the ZipInfo object associated with the zip member to get offset for
+
+    Returns:
+        byte offset (start and end) for zip member
+    """
+    with open(zip_path, 'rb') as f:
+        f.seek(zinfo.header_offset)
+        data = f.read(30)
+
+    n = int.from_bytes(data[26:28], "little")
+    m = int.from_bytes(data[28:30], "little")
+
+    data_start = zinfo.header_offset + n + m + 30
+    data_stop = data_start + zinfo.compress_size
+    return Offset(data_start, data_stop)
+
+
+class ZipIndexer:
+    """Class for creating dflidx indexes for zip archive members
+    that are compatible with the zran library.
+    """
+
+    def __init__(self, zip_path: str, member_name: str, spacing: int = 2**20):
+        self.zip_path = zip_path
+        self.spacing = spacing
+        self.member_name = member_name
+        self.index = None
+
+    def create_full_dflidx(self):
+        with zipfile.ZipFile(self.zip_path) as f:
+            zinfo = [x for x in f.infolist() if self.member_name in x.filename][0]
+
+        self.file_offset = get_zip_compressed_offset(self.zip_path, zinfo)
+        with open(self.zip_path, 'rb') as f:
+            f.seek(self.file_offset.start)
+            self.body = f.read(self.file_offset.stop - self.file_offset.start)
+
+        self.index = zran.Index.create_index(self.body, span=self.spacing)
+
+    def subset_dflidx(self, starts: Iterable[int] = [], stops: Iterable[int] = []) -> Iterable:
+        """Build base DFLIDX index for a Zip member file that has
+        been compresed using zlib (DEFLATE).
+
+        Args:
+            member_name: name of zip member
+            starts: uncompressed locations to provide indexes before
+            stops: uncompressed locations to provide indexes after
+
+        Returns:
+            bytes of dflidx, and compressed range of member in zip archive
+        """
+        compressed_offset, uncompressed_offset, modified_index = self.index.create_modified_index(starts, stops)
+        compressed_offset = Offset(
+            compressed_offset[0] + self.file_offset.start, compressed_offset[1] + self.file_offset.start
+        )
+        uncompressed_offset = Offset(uncompressed_offset[0], uncompressed_offset[1])
+        return compressed_offset, uncompressed_offset, modified_index
