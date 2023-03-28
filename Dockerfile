@@ -37,5 +37,5 @@ RUN mamba env create -f /index_safe/environment.yml && \
     sed -i 's/conda activate base/conda activate index_safe/g' /home/conda/.profile && \
     python -m pip install --no-cache-dir /index_safe
 
-# ENTRYPOINT ["/index_safe/{{cookiecutter.__package_name}}/src/etc/entrypoint.sh"]
-# CMD ["-h"]
+ENTRYPOINT ["/index_safe/index_safe/src/etc/entrypoint.sh"]
+CMD ["app.handler"]
