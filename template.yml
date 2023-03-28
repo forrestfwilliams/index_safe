@@ -20,7 +20,7 @@ Resources:
     Properties:
       PackageType: Image
       ImageConfig:
-        Command: ['index.lambda_handler']
+        Command: ['create_index.lambda_handler']
       Timeout: 900
       MemorySize: 10240
       Architectures:

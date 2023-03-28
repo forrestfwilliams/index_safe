@@ -87,7 +87,7 @@ class XmlMetadata:
 
 
 # FIXME json is not actual name of output
-def get_tmp_access_keys(save_path: str = 'credentials.json') -> dict:
+def get_tmp_access_keys(save_path: str = 'credentials.json', edl_token: str = None) -> dict:
     """Get temporary AWS access keys for direct
     access to ASF data in S3.
 
@@ -97,17 +97,18 @@ def get_tmp_access_keys(save_path: str = 'credentials.json') -> dict:
     Returns:
         dictionary of credentials
     """
-    token = os.environ['EDL_TOKEN']
+    if not edl_token:
+        edl_token = os.environ['EDL_TOKEN']
     resp = requests.get(
         'https://sentinel1.asf.alaska.edu/s3credentials',
-        headers={'Authorization': f'Bearer {token}'},
+        headers={'Authorization': f'Bearer {edl_token}'},
     )
     resp.raise_for_status()
     save_path.write_bytes(resp.content)
     return resp.json()
 
 
-def get_credentials() -> dict:
+def get_credentials(edl_token: str = None) -> dict:
     """Gets temporary ASF AWS credentials from
     file or request new credentials if credentials
     are not present or expired.
@@ -117,7 +118,7 @@ def get_credentials() -> dict:
     """
     credential_file = Path('credentials.json')
     if not credential_file.exists():
-        credentials = get_tmp_access_keys(credential_file)
+        credentials = get_tmp_access_keys(credential_file, edl_token)
         return credentials
 
     credentials = json.loads(credential_file.read_text())
@@ -125,7 +126,7 @@ def get_credentials() -> dict:
     current_time = datetime.now(timezone.utc)
 
     if current_time >= expiration_time:
-        credentials = get_tmp_access_keys(credential_file)
+        credentials = get_tmp_access_keys(credential_file, edl_token)
 
     return credentials
 
@@ -147,7 +148,7 @@ def get_download_url(scene: str) -> str:
     return url
 
 
-def download_slc(scene: str, strategy='s3') -> str:
+def download_slc(scene: str, edl_token: str = None, strategy='s3') -> str:
     """Download an SLC zip file from ASF.
 
     Args:
@@ -159,7 +160,7 @@ def download_slc(scene: str, strategy='s3') -> str:
     url = get_download_url(scene)
 
     if strategy == 's3':
-        creds = get_credentials()
+        creds = get_credentials(edl_token)
         client = boto3.client(
             "s3",
             aws_access_key_id=creds["accessKeyId"],

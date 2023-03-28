@@ -201,7 +201,7 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
     return out_name
 
 
-def index_safe(slc_name: str, keep: bool = True):
+def index_safe(slc_name: str, edl_token: str = None, keep: bool = True):
     """Create the index and other metadata needed to directly download
     and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
     this information in csv files. All information for extracting a burst is included in
@@ -209,6 +209,7 @@ def index_safe(slc_name: str, keep: bool = True):
 
     Args:
         slc_name: Scene name to index
+        edl_token: token for earth data login access
         keep: If False, delete SLC zip after indexing
 
     Returns:
@@ -217,7 +218,7 @@ def index_safe(slc_name: str, keep: bool = True):
     zipped_safe_path = f'{slc_name}.zip'
     if not Path(zipped_safe_path).exists():
         print('Downloading SLC...')
-        utils.download_slc(slc_name)
+        utils.download_slc(slc_name, edl_token)
     else:
         print('SLC exists locally, skipping download')
 
@@ -236,6 +237,11 @@ def index_safe(slc_name: str, keep: bool = True):
 
     if not keep:
         os.remove(zipped_safe_path)
+
+
+def lambda_handler(event, context):
+    index_safe(event['scene'], event['edl_token'])
+    print(list(Path('.').glob('*')))
 
 
 def main():
