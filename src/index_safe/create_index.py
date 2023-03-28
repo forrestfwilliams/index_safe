@@ -7,6 +7,7 @@ from collections import ChainMap
 from pathlib import Path
 from typing import Iterable
 
+import boto3
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -241,7 +242,10 @@ def index_safe(slc_name: str, edl_token: str = None, keep: bool = True):
 
 def lambda_handler(event, context):
     index_safe(event['scene'], event['edl_token'])
-    print(list(Path('.').glob('*')))
+    s3 = boto3.client('s3')
+    bucket_name = os.environ.get('DestinationBucketName')
+    indexes = Path('.').glob('*.bstidx')
+    [s3.upload_file(x.name, bucket_name) for x in indexes]
 
 
 def main():
