@@ -20,15 +20,15 @@ classifiers=[
     "Programming Language :: Python :: 3.10",
 ]
 dependencies = [
-  "gdal"
-  "boto3"
-  "indexed_gzip"
-  "tqdm"
-  "numpy"
-  "pandas"
-  "requests"
-  "fsspec"
-  "s3fs"
+  "gdal",
+  "boto3",
+  "indexed_gzip",
+  "tqdm",
+  "numpy",
+  "pandas",
+  "requests",
+  "fsspec",
+  "s3fs",
   "aiohttp"
 ]
 dynamic = ["version"]

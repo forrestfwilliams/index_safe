@@ -1,16 +1,13 @@
-import io
-import os
 import struct
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Iterable
 
 import boto3
-import fsspec
-import indexed_gzip as igzip
 import numpy as np
 import pandas as pd
 import requests
+import zran
 from osgeo import gdal
 
 from . import utils
@@ -21,41 +18,7 @@ MB = 1024 * KB
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
-def extract_bytes_by_swath(url: str, metadata: utils.BurstMetadata, strategy: str = 's3') -> bytes:
-    """Extract bytes pertaining to a burst from a Sentinel-1 SLC archive using a GZIDX that represents
-    the entire swath. Index file must be in working directory.
-
-    Args:
-        url: url location of SLC archive
-        metadata: metadata object for burst to extract
-        strategy: strategy to use for download (s3 | http) s3 only works if runnning from us-west-2 region
-
-    Returns:
-        bytes representing a single burst
-    """
-    gzidx_name = '_'.join(metadata.name.split('_')[:-1]) + '.gzidx'
-
-    if strategy == 's3':
-        creds = utils.get_credentials()
-        options = {'key': creds['accessKeyId'], 'secret': creds['secretAccessKey'], 'token': creds['sessionToken']}
-        base_fs = fsspec.filesystem('s3', **options)
-        url = f'{BUCKET}/{Path(url).name}'
-    elif strategy == 'http':
-        token = os.environ['EDL_TOKEN']
-        options = {'block_size': 100 * MB, 'client_kwargs': {'headers': {'Authorization': f'Bearer {token}'}}}
-        base_fs = fsspec.filesystem('https', **options)
-
-    length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
-    burst_bytes = bytearray(length)
-    with base_fs.open(url, 'rb') as zip_fobj:
-        with igzip.IndexedGzipFile(zip_fobj) as igzip_fobj:
-            igzip_fobj.import_index(gzidx_name)
-            igzip_fobj.seek(metadata.uncompressed_offset.start)
-            igzip_fobj.readinto(burst_bytes)
-    return burst_bytes
-
-
-def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, strategy: str = 's3') -> bytes:
+def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, index: zran.Index, strategy: str = 's3') -> bytes:
     """Extract bytes pertaining to a burst from a Sentinel-1 SLC archive using a GZIDX that represents
     a single burst. Index file must be in working directory.
 
@@ -67,8 +30,6 @@ def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, strategy: st
     Returns:
         bytes representing a single burst
     """
-    gzidx_name = Path(metadata.name).with_suffix('.gzidx').name
-
     range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop - 1}'
     if strategy == 's3':
         creds = utils.get_credentials()
@@ -79,23 +40,14 @@ def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, strategy: st
             aws_session_token=creds["sessionToken"],
         )
         resp = client.get_object(Bucket=BUCKET, Key=Path(url).name, Range=range_header)
-        body = bytes(10) + resp['Body'].read()
+        body = resp['Body'].read()
     elif strategy == 'http':
         client = requests.session()
         resp = client.get(url, headers={'Range': range_header})
-        body = bytes(10) + resp.content
-
-    with open(gzidx_name, 'rb') as f:
-        f.seek(85)
-        gzidx = f.read()
-    assert gzidx[0:5] == b'GZIDX'
+        body = resp.content
 
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
-    burst_bytes = bytearray(length)
-    with igzip.IndexedGzipFile(io.BytesIO(body)) as igzip_fobj:
-        igzip_fobj.import_index(fileobj=io.BytesIO(gzidx))
-        igzip_fobj.seek(metadata.uncompressed_offset.start)
-        igzip_fobj.readinto(burst_bytes)
+    burst_bytes = zran.decompress(body, index, metadata.uncompressed_offset.start, length)
     return burst_bytes
 
 
@@ -163,8 +115,12 @@ def bytes_to_burst_entry(burst_name: str):
     Returns:
         burst metadata object
     """
-    with open(Path(burst_name).with_suffix('.gzidx').name, 'rb') as f:
+    with open(Path(burst_name).with_suffix('.bstidx').name, 'rb') as f:
         byte_data = f.read(85)
+        index_data = f.read()
+
+    index = zran.Index.parse_index_file(index_data)
+
     assert byte_data[0:5] == b'BURST'
 
     slc_name = '_'.join(burst_name.split('_')[:-3])
@@ -187,7 +143,7 @@ def bytes_to_burst_entry(burst_name: str):
     window = utils.Window(valid_xstart, valid_xend, valid_ystart, valid_yend)
 
     burst_entry = utils.BurstMetadata(burst_name, slc_name, shape, index_offset, decompressed_offset, window)
-    return burst_entry
+    return index, burst_entry
 
 
 def array_to_raster(out_path: str, array: np.ndarray, fmt: str = 'GTiff') -> str:
@@ -209,30 +165,7 @@ def array_to_raster(out_path: str, array: np.ndarray, fmt: str = 'GTiff') -> str
     return out_path
 
 
-def extract_burst_by_swath(burst_name: str, df_file_name: str) -> str:
-    """Extract burst from SLC in ASF archive using a swath-level index
-    file and a burst metadata csv. Index must be in working directory.
-
-    Args:
-        burst_name: name of burst to extract
-        df_file_name: path to csv file containing burst metadata
-
-    Returns:
-        path to saved burst raster
-    """
-    df = pd.read_csv(df_file_name)
-    single_burst = df.loc[df.name == burst_name].squeeze()
-    burst_metadata = row_to_burst_entry(single_burst)
-
-    url = utils.get_download_url(single_burst['slc'])
-    burst_bytes = extract_bytes_by_swath(url, burst_metadata)
-    burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
-    burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
-    out_name = array_to_raster(burst_name, burst_array)
-    return out_name
-
-
-def extract_burst_by_burst(burst_name: str) -> str:
+def extract_burst(burst_name: str) -> str:
     """Extract burst from SLC in ASF archive using a burst-level index
     file. Index must be in working directory.
 
@@ -242,10 +175,9 @@ def extract_burst_by_burst(burst_name: str) -> str:
     Returns:
         path to saved burst raster
     """
-    burst_metadata = bytes_to_burst_entry(burst_name)
-
+    index, burst_metadata = bytes_to_burst_entry(burst_name)
     url = utils.get_download_url(burst_metadata.slc)
-    burst_bytes = extract_bytes_by_burst(url, burst_metadata)
+    burst_bytes = extract_bytes_by_burst(url, burst_metadata, index)
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
     out_name = array_to_raster(burst_name, burst_array)
@@ -261,7 +193,7 @@ def main():
     parser.add_argument('burst')
     args = parser.parse_args()
 
-    extract_burst_by_burst(args.burst)
+    extract_burst(args.burst)
 
 
 if __name__ == '__main__':

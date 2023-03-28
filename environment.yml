@@ -16,3 +16,5 @@ dependencies:
   - aiohttp
   # For packaging, and testing
   - pytest
+  pip:
+    - zran
