@@ -1,5 +1,6 @@
 import io
 import os
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from argparse import ArgumentParser
@@ -10,11 +11,10 @@ from typing import Iterable
 import boto3
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
-
 # FIXME
 # from . import utils
 import utils
+from tqdm import tqdm
 
 
 def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:
@@ -204,7 +204,7 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
     return out_name
 
 
-def index_safe(slc_name: str, edl_token: str = None, keep: bool = True):
+def index_safe(slc_name: str, edl_token: str = None, working_dir='.', keep: bool = True):
     """Create the index and other metadata needed to directly download
     and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
     this information in csv files. All information for extracting a burst is included in
@@ -218,10 +218,11 @@ def index_safe(slc_name: str, edl_token: str = None, keep: bool = True):
     Returns:
         No function outputs, but saves a metadata.csv, burst indexes to file
     """
-    zipped_safe_path = f'{slc_name}.zip'
-    if not Path(zipped_safe_path).exists():
+    absolute_dir = Path(working_dir).resolve()
+    zipped_safe_path = absolute_dir / f'{slc_name}.zip'
+    if not zipped_safe_path.exists():
         print('Downloading SLC...')
-        utils.download_slc(slc_name, edl_token)
+        utils.download_slc(slc_name, edl_token, working_dir=absolute_dir)
     else:
         print('SLC exists locally, skipping download')
 
@@ -232,23 +233,29 @@ def index_safe(slc_name: str, edl_token: str = None, keep: bool = True):
 
     print('Reading XMLs...')
     xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
-    save_as_csv(xml_metadatas, 'metadata.csv')
+    save_as_csv(xml_metadatas, absolute_dir / 'metadata.csv')
 
     print('Reading Bursts...')
     burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
-    [Path(key).write_bytes(value) for key, value in burst_metadatas.items()]
+    [(absolute_dir / key).write_bytes(value) for key, value in burst_metadatas.items()]
 
     if not keep:
         os.remove(zipped_safe_path)
 
 
 def lambda_handler(event, context):
-    index_safe(event['scene'], event['edl_token'])
+    print('## ENVIRONMENT VARIABLES')
+    print(os.environ)
+    print('## EVENT')
+    print(event)
+    print('## PROCESS BEGIN...')
     s3 = boto3.client('s3')
     bucket_name = os.environ.get('DestinationBucketName')
-    indexes = Path('.').glob('*.bstidx')
-    [s3.upload_file(x.name, bucket_name) for x in indexes]
-
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        index_safe(event['scene'], event['edl_token'], working_dir=tmpdirname)
+        indexes = Path(tmpdirname).glob('*.bstidx')
+        [s3.upload_file(str(x), bucket_name, x.name) for x in indexes]
+    print('## PROCESS COMPLETE!')
 
 def main():
     """Example Command:
@@ -259,6 +266,7 @@ def main():
     parser.add_argument('scene')
     args = parser.parse_args()
     index_safe(args.scene)
+    # index_safe(args.scene, working_dir = 'tmpdir')
 
 
 if __name__ == '__main__':

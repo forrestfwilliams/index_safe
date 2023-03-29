@@ -87,7 +87,7 @@ class XmlMetadata:
 
 
 # FIXME json is not actual name of output
-def get_tmp_access_keys(save_path: str = 'credentials.json', edl_token: str = None) -> dict:
+def get_tmp_access_keys(save_path: Path = Path('./credentials.json'), edl_token: str = None) -> dict:
     """Get temporary AWS access keys for direct
     access to ASF data in S3.
 
@@ -108,7 +108,7 @@ def get_tmp_access_keys(save_path: str = 'credentials.json', edl_token: str = No
     return resp.json()
 
 
-def get_credentials(edl_token: str = None) -> dict:
+def get_credentials(edl_token: str = None, working_dir = Path('.')) -> dict:
     """Gets temporary ASF AWS credentials from
     file or request new credentials if credentials
     are not present or expired.
@@ -116,7 +116,7 @@ def get_credentials(edl_token: str = None) -> dict:
     Returns:
         dictionary of credentials
     """
-    credential_file = Path('credentials.json')
+    credential_file = working_dir / 'credentials.json'
     if not credential_file.exists():
         credentials = get_tmp_access_keys(credential_file, edl_token)
         return credentials
@@ -148,7 +148,7 @@ def get_download_url(scene: str) -> str:
     return url
 
 
-def download_slc(scene: str, edl_token: str = None, strategy='s3') -> str:
+def download_slc(scene: str, edl_token: str = None, working_dir=Path('.'), strategy='s3') -> str:
     """Download an SLC zip file from ASF.
 
     Args:
@@ -160,7 +160,7 @@ def download_slc(scene: str, edl_token: str = None, strategy='s3') -> str:
     url = get_download_url(scene)
 
     if strategy == 's3':
-        creds = get_credentials(edl_token)
+        creds = get_credentials(edl_token, working_dir)
         client = boto3.client(
             "s3",
             aws_access_key_id=creds["accessKeyId"],
@@ -171,7 +171,7 @@ def download_slc(scene: str, edl_token: str = None, strategy='s3') -> str:
         metadata = client.head_object(Bucket=BUCKET, Key=zip_name)
         total_length = int(metadata.get('ContentLength', 0))
         with tqdm(total=total_length, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
-            with open(zip_name, 'wb') as f:
+            with open(working_dir / zip_name, 'wb') as f:
                 client.download_fileobj(BUCKET, zip_name, f, Callback=pbar.update)
 
     elif strategy == 'http':

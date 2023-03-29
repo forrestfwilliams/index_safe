@@ -23,6 +23,8 @@ Resources:
         Command: ['create_index.lambda_handler']
       Timeout: 900
       MemorySize: 10240
+      EphemeralStorage:
+        Size: 10240
       Architectures:
         - x86_64
       Environment:
