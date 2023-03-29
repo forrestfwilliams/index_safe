@@ -12,7 +12,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from . import utils
+# FIXME
+# from . import utils
+import utils
 
 
 def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:

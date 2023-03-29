@@ -14,7 +14,7 @@ dependencies:
   - fsspec
   - s3fs
   - aiohttp
-  - awslambdaric
+  - pipreqs
   # For packaging, and testing
   - pytest
   - pip:

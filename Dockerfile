@@ -1,41 +1,46 @@
-FROM condaforge/mambaforge:latest
+# Define function directory
+ARG FUNCTION_DIR="/function"
 
-# For opencontainers label definitions, see:
-#    https://github.com/opencontainers/image-spec/blob/master/annotations.md
-LABEL org.opencontainers.image.title="Sentinel-1 SAFE Indexer"
+FROM osgeo/gdal:ubuntu-small-3.6.2 as build-image
 
-# Dynamic lables to define at build time via `docker build --label`
-# LABEL org.opencontainers.image.created=""
-# LABEL org.opencontainers.image.version=""
-# LABEL org.opencontainers.image.revision=""
+# Install aws-lambda-cpp build dependencies
+RUN apt-get update && \
+  apt-get install -y \
+  g++ \
+  make \
+  cmake \
+  unzip \
+  libcurl4-openssl-dev \
+  python3-pip
 
-ARG DEBIAN_FRONTEND=noninteractive
-ENV PYTHONDONTWRITEBYTECODE=true
+# Include global arg in this stage of the build
+ARG FUNCTION_DIR
+# Create function directory
+RUN mkdir -p ${FUNCTION_DIR}
 
-RUN apt-get update && apt-get install -y --no-install-recommends unzip vim && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# Copy function code
+COPY src/index_safe/* ${FUNCTION_DIR}/
+COPY ./requirements_for_lambda.txt .
 
-ARG CONDA_UID=1000
-ARG CONDA_GID=1000
+# Install the runtime interface client
+RUN pip install \
+        --target ${FUNCTION_DIR} \
+        -r requirements_for_lambda.txt
 
-RUN groupadd -g "${CONDA_GID}" --system conda && \
-    useradd -l -u "${CONDA_UID}" -g "${CONDA_GID}" --system -d /home/conda -m  -s /bin/bash conda && \
-    chown -R conda:conda /opt && \
-    echo ". /opt/conda/etc/profile.d/conda.sh" >> /home/conda/.profile && \
-    echo "conda activate base" >> /home/conda/.profile
+RUN pip install \
+        --target ${FUNCTION_DIR} \
+        awslambdaric
 
+# Multi-stage build: grab a fresh copy of the base image
+FROM osgeo/gdal:ubuntu-small-3.6.2
 
-USER ${CONDA_UID}
-SHELL ["/bin/bash", "-l", "-c"]
-WORKDIR /home/conda/
+# Include global arg in this stage of the build
+ARG FUNCTION_DIR
+# Set working directory to function root directory
+WORKDIR ${FUNCTION_DIR}
 
-COPY --chown=${CONDA_UID}:${CONDA_GID} . /index_safe/
+# Copy in the build image dependencies
+COPY --from=build-image ${FUNCTION_DIR} ${FUNCTION_DIR}/
 
-RUN mamba env create -f /index_safe/environment.yml && \
-    conda clean -afy && \
-    conda activate index_safe && \
-    sed -i 's/conda activate base/conda activate index_safe/g' /home/conda/.profile && \
-    python -m pip install --no-cache-dir /index_safe
-
-ENTRYPOINT ["/index_safe/src/etc/entrypoint.sh"]
-CMD ["app.handler"]
+ENTRYPOINT [ "python", "-m", "awslambdaric" ]
+CMD [ "app.handler" ]
