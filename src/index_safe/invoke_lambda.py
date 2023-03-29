@@ -10,7 +10,7 @@ scenes = [
     'S1A_IW_SLC__1SDV_20201203T162353_20201203T162420_035524_042744_6D5C'
 ]
 
-function_arn = 'arn:aws:lambda:us-west-2:050846374571:function:ffwilliams2-test-indexer-IndexCreationFunction-mPhGl00e5EHE' # noqa
+function_arn = 'ffwilliams2-test-indexer-IndexCreationFunction-qTfV0eMha9PT'
 
 results = []
 for scene in scenes:

@@ -250,7 +250,7 @@ def lambda_handler(event, context):
     print(event)
     print('## PROCESS BEGIN...')
     s3 = boto3.client('s3')
-    bucket_name = os.environ.get('DestinationBucketName')
+    bucket_name = os.environ.get('IndexBucketName')
     with tempfile.TemporaryDirectory() as tmpdirname:
         index_safe(event['scene'], event['edl_token'], working_dir=tmpdirname)
         indexes = Path(tmpdirname).glob('*.bstidx')
