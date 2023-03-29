@@ -257,6 +257,7 @@ def lambda_handler(event, context):
         [s3.upload_file(str(x), bucket_name, x.name) for x in indexes]
     print('## PROCESS COMPLETE!')
 
+
 def main():
     """Example Command:
 
