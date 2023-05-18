@@ -46,9 +46,13 @@ develop = [
 [project.urls]
 Homepage = "https://github.com/forrestfwilliams/indexed_safe"
 "Bug Tracker" ="https://github.com/forrestfwilliams/indexed_safe/issues" 
+
 [tool.setuptools]
 include-package-data = true
 zip-safe = false
+
+[tool.ruff]
+line-length = 120
 
 [tool.setuptools.packages.find]
 where = ["src"]

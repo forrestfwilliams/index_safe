@@ -11,10 +11,12 @@ from typing import Iterable
 import boto3
 import numpy as np
 import pandas as pd
-# FIXME
-# from . import utils
-import utils
 from tqdm import tqdm
+
+try:
+    from index_safe import utils
+except ModuleNotFoundError:
+    import utils
 
 
 def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:

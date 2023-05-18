@@ -9,11 +9,13 @@ import boto3
 import numpy as np
 import pandas as pd
 import requests
-# FIXME
-# from . import utils
-import utils
 import zran
 from osgeo import gdal
+
+try:
+    from index_safe import utils
+except ModuleNotFoundError:
+    import utils
 
 KB = 1024
 MB = 1024 * KB

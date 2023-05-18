@@ -27,10 +27,6 @@ RUN pip install \
         --target ${FUNCTION_DIR} \
         -r requirements_for_lambda.txt
 
-RUN pip install \
-        --target ${FUNCTION_DIR} \
-        awslambdaric
-
 # Multi-stage build: grab a fresh copy of the base image
 FROM osgeo/gdal:ubuntu-small-3.6.2
 

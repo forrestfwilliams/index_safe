@@ -10,7 +10,10 @@ import pandas as pd
 import requests
 from tqdm import tqdm
 
-from . import utils
+try:
+    from index_safe import utils
+except ModuleNotFoundError:
+    import utils
 
 KB = 1024
 MB = 1024 * KB
