@@ -4,7 +4,6 @@ import zipfile
 import zlib
 from pathlib import Path
 
-import indexed_gzip as igzip
 import numpy as np
 import pytest
 import requests
@@ -13,6 +12,8 @@ from osgeo import gdal
 
 from index_safe import create_index, extract_burst, utils
 
+
+gdal.UseExceptions()
 
 BURST_LENGTH = 153814955 - 109035
 BURST_SHAPE = (1510, 25448)

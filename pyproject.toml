@@ -22,7 +22,6 @@ classifiers=[
 dependencies = [
   "gdal",
   "boto3",
-  "indexed_gzip",
   "tqdm",
   "numpy",
   "pandas",

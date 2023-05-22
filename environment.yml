@@ -6,7 +6,6 @@ dependencies:
   - python>=3.8
   - gdal
   - boto3
-  - indexed_gzip
   - tqdm
   - numpy
   - pandas
