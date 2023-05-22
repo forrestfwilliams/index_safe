@@ -76,8 +76,7 @@ def burst_bytes_to_numpy(burst_bytes: bytes, shape: Iterable[int]) -> np.ndarray
     Returns:
         burst array with a CFloat data type
     """
-    tmp_array = np.frombuffer(burst_bytes, dtype=np.int16).astype(float)
-    array = tmp_array.copy()
+    array = np.frombuffer(burst_bytes, dtype=np.int16).astype(float)
     array.dtype = 'complex'
     array = array.reshape(shape).astype(np.csingle)
     return array
