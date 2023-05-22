@@ -1,4 +1,4 @@
-name: bursts
+name: index_safe
 channels:
   - conda-forge
   - nodefaults
@@ -14,7 +14,9 @@ dependencies:
   - fsspec
   - s3fs
   - aiohttp
+  - pipreqs
   # For packaging, and testing
   - pytest
-  pip:
+  - pip:
     - zran
+

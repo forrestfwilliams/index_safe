@@ -1,4 +1,6 @@
+import os
 import struct
+import tempfile
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Iterable
@@ -10,7 +12,10 @@ import requests
 import zran
 from osgeo import gdal
 
-from . import utils
+try:
+    from index_safe import utils
+except ModuleNotFoundError:
+    import utils
 
 KB = 1024
 MB = 1024 * KB
@@ -18,7 +23,14 @@ MB = 1024 * KB
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
-def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, index: zran.Index, strategy: str = 's3') -> bytes:
+def extract_bytes_by_burst(
+    url: str,
+    metadata: utils.BurstMetadata,
+    index: zran.Index,
+    edl_token: str = None,
+    working_dir: Path = Path('.'),
+    strategy: str = 's3',
+) -> bytes:
     """Extract bytes pertaining to a burst from a Sentinel-1 SLC archive using a GZIDX that represents
     a single burst. Index file must be in working directory.
 
@@ -32,7 +44,7 @@ def extract_bytes_by_burst(url: str, metadata: utils.BurstMetadata, index: zran.
     """
     range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop - 1}'
     if strategy == 's3':
-        creds = utils.get_credentials()
+        creds = utils.get_credentials(edl_token, working_dir)
         client = boto3.client(
             "s3",
             aws_access_key_id=creds["accessKeyId"],
@@ -115,7 +127,7 @@ def bytes_to_burst_entry(burst_name: str):
     Returns:
         burst metadata object
     """
-    with open(Path(burst_name).with_suffix('.bstidx').name, 'rb') as f:
+    with open(str(burst_name.with_suffix('.bstidx')), 'rb') as f:
         byte_data = f.read(85)
         index_data = f.read()
 
@@ -123,7 +135,7 @@ def bytes_to_burst_entry(burst_name: str):
 
     assert byte_data[0:5] == b'BURST'
 
-    slc_name = '_'.join(burst_name.split('_')[:-3])
+    slc_name = '_'.join(burst_name.name.split('_')[:-3])
     data = struct.unpack('<QQQQQQQQQQ', byte_data[5:85])
 
     shape_y = data[0]
@@ -146,7 +158,7 @@ def bytes_to_burst_entry(burst_name: str):
     return index, burst_entry
 
 
-def array_to_raster(out_path: str, array: np.ndarray, fmt: str = 'GTiff') -> str:
+def array_to_raster(out_path: Path, array: np.ndarray, fmt: str = 'GTiff') -> str:
     """Save a burst array as gdal raster.
 
     Args:
@@ -159,13 +171,13 @@ def array_to_raster(out_path: str, array: np.ndarray, fmt: str = 'GTiff') -> str
     """
     driver = gdal.GetDriverByName(fmt)
     n_rows, n_cols = array.shape
-    out_dataset = driver.Create(out_path, n_cols, n_rows, 1, gdal.GDT_CFloat32)
+    out_dataset = driver.Create(str(out_path), n_cols, n_rows, 1, gdal.GDT_CFloat32)
     out_dataset.GetRasterBand(1).WriteArray(array)
     out_dataset = None
     return out_path
 
 
-def extract_burst(burst_name: str) -> str:
+def extract_burst(burst_name: str, edl_token: str = None, working_dir: Path = Path('.')) -> str:
     """Extract burst from SLC in ASF archive using a burst-level index
     file. Index must be in working directory.
 
@@ -175,13 +187,32 @@ def extract_burst(burst_name: str) -> str:
     Returns:
         path to saved burst raster
     """
-    index, burst_metadata = bytes_to_burst_entry(burst_name)
+    burst_path = working_dir / burst_name
+    index, burst_metadata = bytes_to_burst_entry(burst_path)
     url = utils.get_download_url(burst_metadata.slc)
-    burst_bytes = extract_bytes_by_burst(url, burst_metadata, index)
+    burst_bytes = extract_bytes_by_burst(url, burst_metadata, index, edl_token, working_dir)
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
-    out_name = array_to_raster(burst_name, burst_array)
-    return out_name
+    out_path = array_to_raster(burst_path, burst_array)
+    return out_path
+
+
+def lambda_handler(event, context):
+    print('## ENVIRONMENT VARIABLES')
+    print(os.environ)
+    print('## EVENT')
+    print(event)
+    print('## PROCESS BEGIN...')
+    s3 = boto3.client('s3')
+    index_bucket_name = os.environ.get('IndexBucketName')
+    extract_bucket_name = os.environ.get('ExtractBucketName')
+    bstidx_name = Path(event['burst']).with_suffix('.bstidx')
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        tmpdir = Path(tmpdirname)
+        s3.download_file(index_bucket_name, str(bstidx_name), str(tmpdir / bstidx_name))
+        tmp_path = extract_burst(event['burst'], event['edl_token'], working_dir=tmpdir)
+        s3.upload_file(str(tmp_path), extract_bucket_name, tmp_path.name)
+    print('## PROCESS COMPLETE!')
 
 
 def main():

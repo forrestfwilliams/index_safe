@@ -4,6 +4,8 @@ src/index_safe/__pycache__/*
 src/index_safe.egg-info/*
 .DS_Store
 tests/credentials.json
+.aws-sam/*
+samconfig.toml
 **/*.tiff
 **/*.gz
 **/*.gzidx

@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Creates Sentinel-1 index files that are uploaded to a bucket
+Parameters:
+  IndexBucketName:
+    Type: String
+  ExtractBucketName:
+    Type: String
+Resources:
+  ## S3 buckets
+  IndexBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref IndexBucketName 
+  ExtractBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref ExtractBucketName 
+  ## Lambda functions
+  IndexCreationFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: .
+      DockerTag: latest
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command: ['create_index.lambda_handler']
+      Timeout: 900
+      MemorySize: 10240
+      EphemeralStorage:
+        Size: 10240
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          IndexBucketName: !Ref IndexBucketName
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref IndexBucketName
+  BurstExtractFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: .
+      DockerTag: latest
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command: ['extract_burst.lambda_handler']
+      Timeout: 900
+      MemorySize: 10240
+      EphemeralStorage:
+        Size: 10240
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          IndexBucketName: !Ref IndexBucketName
+          ExtractBucketName: !Ref ExtractBucketName
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref IndexBucketName
+        - S3CrudPolicy:
+            BucketName: !Ref ExtractBucketName
