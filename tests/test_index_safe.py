@@ -3,15 +3,16 @@ import shutil
 import zipfile
 import zlib
 from pathlib import Path
-import requests
 
 import indexed_gzip as igzip
 import numpy as np
 import pytest
+import requests
 import zran
 from osgeo import gdal
 
 from index_safe import create_index, extract_burst, utils
+
 
 BURST_LENGTH = 153814955 - 109035
 BURST_SHAPE = (1510, 25448)
@@ -56,6 +57,7 @@ def golden_zip():
     if Path(ZIP_PATH).exists():
         return ZIP_PATH
 
+    print('Downloading test SAFE archive')
     url = f'https://sentinel1.asf.alaska.edu/SLC/SA/{ZIP_NAME}'
     session = requests.Session()
     with session.get(url, stream=True) as s:
@@ -80,7 +82,7 @@ def golden_tiff(golden_zip):
         with archive.open(zinfo.filename, 'r') as f:
             body = f.read()
 
-    with open(Path(zinfo.filename).name, 'wb') as f:
+    with open(TIFF_PATH, 'wb') as f:
         f.write(body)
 
     return TIFF_PATH
@@ -194,7 +196,7 @@ def test_burst_bytes_to_numpy(golden_bytes):
 
 def test_invalid_to_nodata(golden_bytes):
     window = utils.Window(xstart=188, ystart=26, xend=24648, yend=1486)
-    
+
     # FIXME: Hardcoded to work with first burst
     valid_data = load_geotiff(str(SCRIPT_DIR / 'valid_01.slc.vrt'))[0]
 
@@ -206,7 +208,7 @@ def test_invalid_to_nodata(golden_bytes):
     assert np.all(equal)
 
 
-# Golden
+# Golden, must be run from tests directory
 @pytest.mark.skip(reason='Integration testing')
 def test_golden_by_burst(golden_tiff):
     safe_name = str(Path(ZIP_NAME).with_suffix(''))
