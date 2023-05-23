@@ -74,7 +74,7 @@ def extract_bytes_by_burst(
             aws_session_token=creds["sessionToken"],
         )
         total_size = (metadata.index_offset.stop - 1) - metadata.index_offset.start
-        range_headers = utils.calculate_range_parameters(total_size, metadata.index_offset.start, 20 * 1024 * 1024)
+        range_headers = utils.calculate_range_parameters(total_size, metadata.index_offset.start, 20 * MB)
         with ThreadPoolExecutor(max_workers=20) as executor:
             results = executor.map(s3_range_get, repeat(client), repeat(Path(url).name), range_headers)
             body = b''.join(results)
