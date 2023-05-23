@@ -87,8 +87,18 @@ class XmlMetadata:
     def to_tuple(self):
         return (self.name, self.slc, self.offset.start, self.offset.stop)
 
+def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> list[str]:
+    """Calculate range parameters for HTTP range requests.
+    Useful when downloading large files in chunks.
 
-def calculate_range_parameters(total_size, offset, chunk_size):
+    Args:
+        total_size: total size of request
+        offset: offset to start request
+        chunk_size: size of each chunk
+
+    Returns:
+        list of range parameters
+    """
     num_parts = int(math.ceil(total_size / float(chunk_size)))
     range_params = []
     for part_index in range(num_parts):

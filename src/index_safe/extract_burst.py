@@ -29,7 +29,18 @@ MB = 1024 * KB
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
-def s3_range_get(client, key, range_header):
+def s3_range_get(client: boto3.client, key: str, range_header: str, bucket: str = BUCKET) -> bytes:
+    """Get a range of bytes from an S3 object.
+    Used in threading to download a large file in chunks.
+
+    Args:
+        client: boto3 S3 client
+        key: S3 object key
+        range_header: range header string
+        bucket: S3 bucket name (default is ASF's S1 SLC bucket)
+    Returns:
+        bytes of object
+    """
     resp = client.get_object(Bucket=BUCKET, Key=key, Range=range_header)
     body = resp['Body'].read()
     return body
@@ -63,7 +74,7 @@ def extract_bytes_by_burst(
             aws_session_token=creds["sessionToken"],
         )
         total_size = (metadata.index_offset.stop - 1) - metadata.index_offset.start
-        range_headers = utils.calculate_range_parameters(total_size, metadata.index_offset.start, 20*1024*1024)
+        range_headers = utils.calculate_range_parameters(total_size, metadata.index_offset.start, 20 * 1024 * 1024)
         with ThreadPoolExecutor(max_workers=20) as executor:
             results = executor.map(s3_range_get, repeat(client), repeat(Path(url).name), range_headers)
             body = b''.join(results)
