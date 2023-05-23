@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import struct
 import zipfile
@@ -11,6 +12,7 @@ import boto3
 import requests
 import zran
 from tqdm import tqdm
+
 
 KB = 1024
 MB = 1024 * KB
@@ -86,7 +88,20 @@ class XmlMetadata:
         return (self.name, self.slc, self.offset.start, self.offset.stop)
 
 
-# FIXME json is not actual name of output
+def calculate_range_parameters(total_size, offset, chunk_size):
+    num_parts = int(math.ceil(total_size / float(chunk_size)))
+    range_params = []
+    for part_index in range(num_parts):
+        start_range = (part_index * chunk_size) + offset
+        if part_index == num_parts - 1:
+            end_range = str(total_size + offset - 1)
+        else:
+            end_range = start_range + chunk_size - 1
+
+        range_params.append(f'bytes={start_range}-{end_range}')
+    return range_params
+
+
 def get_tmp_access_keys(save_path: Path = Path('./credentials.json'), edl_token: str = None) -> dict:
     """Get temporary AWS access keys for direct
     access to ASF data in S3.
@@ -108,7 +123,7 @@ def get_tmp_access_keys(save_path: Path = Path('./credentials.json'), edl_token:
     return resp.json()
 
 
-def get_credentials(edl_token: str = None, working_dir = Path('.')) -> dict:
+def get_credentials(edl_token: str = None, working_dir=Path('.')) -> dict:
     """Gets temporary ASF AWS credentials from
     file or request new credentials if credentials
     are not present or expired.
