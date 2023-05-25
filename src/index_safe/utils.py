@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+import botocore
 import boto3
 import requests
 import zran
@@ -87,6 +88,7 @@ class XmlMetadata:
     def to_tuple(self):
         return (self.name, self.slc, self.offset.start, self.offset.stop)
 
+
 def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> list[str]:
     """Calculate range parameters for HTTP range requests.
     Useful when downloading large files in chunks.
@@ -154,6 +156,40 @@ def get_credentials(edl_token: str = None, working_dir=Path('.')) -> dict:
         credentials = get_tmp_access_keys(credential_file, edl_token)
 
     return credentials
+
+
+def lambda_get_credentials(edl_token, working_dir, client, bucket, key):
+    """Gets temporary ASF AWS credentials for a lambda function.
+    Checks if credentials exist in S3 and are not expired. If neither are true,
+    a new version of the credentials is uploaded to S3.
+
+    Args:
+        edl_token: EDL token
+        working_dir: working directory
+        client: boto3 client
+        bucket: S3 bucket
+        key: S3 key
+    """
+    credential_file = working_dir / 'credentials.json'
+    credentials_need_update = False
+
+    try:
+        client.download_file(bucket, key, credential_file)
+    except botocore.exceptions.ClientError:
+        print('The credentials do not exist, will create.')
+        credentials_need_update = True
+        get_tmp_access_keys(credential_file, edl_token)
+
+    credentials = json.loads(credential_file.read_text())
+    expiration_time = datetime.fromisoformat(credentials['expiration'])
+    current_time = datetime.now(timezone.utc)
+
+    if current_time >= expiration_time:
+        credentials_need_update = True
+        get_tmp_access_keys(credential_file, edl_token)
+
+    if credentials_need_update:
+        client.upload_file(credential_file, bucket, key)
 
 
 def get_download_url(scene: str) -> str:

@@ -235,6 +235,7 @@ def lambda_handler(event, context):
     bstidx_name = Path(event['burst']).with_suffix('.bstidx')
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = Path(tmpdirname)
+        utils.lambda_get_credentials(event['edl_token'], tmpdir, s3, extract_bucket_name, 'credentials.json')
         s3.download_file(index_bucket_name, str(bstidx_name), str(tmpdir / bstidx_name))
         tmp_path = extract_burst(event['burst'], event['edl_token'], working_dir=tmpdir)
         s3.upload_file(str(tmp_path), extract_bucket_name, tmp_path.name)
