@@ -1,8 +1,8 @@
 {
 	"lambdaARN": "arn:aws:lambda:us-west-2:050846374571:function:ffwilliams2-test-indexer-BurstExtractFunction-kcaujwt92zHk",
-	"powerValues": [1024, 2048, 4096, 5120, 6144, 7168, 8192, 9216, 10240],
+	"powerValues": [1024, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 9216, 10240],
 	"num": 5,
-	"payload": {"burst": "S1A_IW_SLC__1SDV_20201203T162353_20201203T162420_035524_042744_6D5C_IW1_VH_4.tiff","edl_token": "eyJ0eXAiOiJKV1QiLCJvcmlnaW4iOiJFYXJ0aGRhdGEgTG9naW4iLCJzaWciOiJlZGxqd3RwdWJrZXlfb3BzIiwiYWxnIjoiUlMyNTYifQ.eyJ0eXBlIjoiVXNlciIsInVpZCI6ImZmd2lsbGlhbXMyIiwiZXhwIjoxNjg1Mzk5NDUxLCJpYXQiOjE2ODAyMTU0NTEsImlzcyI6IkVhcnRoZGF0YSBMb2dpbiJ9.EG26hTpPSnJYmaSGQKAvOx3hGjLSNFG-lkIbxKOwWdKZRH4cymBFmFed5ZsK1omPPaIn9Je94aRkO6UUx9tlFzHwKeuWv1cHHT2dljvMzDJDlaY62SgTCrYbuwxhdBjlVOV2s8lQ73SqOSIL8CYerbpbMtB6U1JPSHic-nBNk0j2sKuHNPTWmuNDPSg9KWLAzXM9CXOuOA0JzC7nIp_RsfIZxyvbVWTp7Q94jaV8deOvYO6bjpOcEcM7YmUHxmbSKTdMxaG0H6uT-cJ7yoxnflE0qLCciIWAJ2donRScKsoR6qjzWSyBqsQ0YXckEjiX81X5WS1gMLamxbX8sTr_Yw"},
+	"payload": {"burst": "S1A_IW_SLC__1SDV_20201203T162353_20201203T162420_035524_042744_6D5C_IW1_VH_4.tiff","edl_token": "EDL_TOKEN"},
 	"parallelInvocation": true,
 	"strategy": "cost"
 }
