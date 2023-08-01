@@ -12,6 +12,7 @@ import requests
 import zran
 from tqdm import tqdm
 
+
 KB = 1024
 MB = 1024 * KB
 SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
@@ -85,6 +86,9 @@ class XmlMetadata:
     def to_tuple(self):
         return (self.name, self.slc, self.offset.start, self.offset.stop)
 
+    def to_dict(self):
+        return {self.slc: {self.name: {'offset_start': self.offset.start, 'offset_stop': self.offset.stop}}}
+
 
 # FIXME json is not actual name of output
 def get_tmp_access_keys(save_path: Path = Path('./credentials.json'), edl_token: str = None) -> dict:
@@ -108,7 +112,7 @@ def get_tmp_access_keys(save_path: Path = Path('./credentials.json'), edl_token:
     return resp.json()
 
 
-def get_credentials(edl_token: str = None, working_dir = Path('.')) -> dict:
+def get_credentials(edl_token: str = None, working_dir=Path('.')) -> dict:
     """Gets temporary ASF AWS credentials from
     file or request new credentials if credentials
     are not present or expired.

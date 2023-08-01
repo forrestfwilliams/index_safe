@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import tempfile
 import xml.etree.ElementTree as ET
@@ -12,6 +13,7 @@ import boto3
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+
 
 try:
     from index_safe import utils
@@ -206,6 +208,18 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
     return out_name
 
 
+def save_as_json(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_name: str) -> str:
+    slc = entries[0].slc
+    metadata_dicts = [entry.to_dict()[slc] for entry in entries]
+    combined_dict = {}
+    for metadata_dict in metadata_dicts:
+        combined_dict.update(metadata_dict)
+
+    with open(out_name, 'w') as json_file:
+        json.dump({slc: combined_dict}, json_file)
+    return out_name
+
+
 def index_safe(slc_name: str, edl_token: str = None, working_dir='.', keep: bool = True):
     """Create the index and other metadata needed to directly download
     and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
@@ -235,11 +249,11 @@ def index_safe(slc_name: str, edl_token: str = None, working_dir='.', keep: bool
 
     print('Reading XMLs...')
     xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
-    save_as_csv(xml_metadatas, absolute_dir / 'metadata.csv')
+    save_as_json(xml_metadatas, absolute_dir / 'metadata.json')
 
-    print('Reading Bursts...')
-    burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
-    [(absolute_dir / key).write_bytes(value) for key, value in burst_metadatas.items()]
+    # print('Reading Bursts...')
+    # burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    # [(absolute_dir / key).write_bytes(value) for key, value in burst_metadatas.items()]
 
     if not keep:
         os.remove(zipped_safe_path)

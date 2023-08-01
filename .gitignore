@@ -14,3 +14,4 @@ samconfig.toml
 **/*.zip
 **/*.xml
 **/*.csv
+**/*.json
