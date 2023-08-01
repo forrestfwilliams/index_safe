@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
 from pathlib import Path
+from typing import Iterable
 
 import boto3
 import botocore
@@ -64,7 +65,15 @@ def row_to_metadata_entry(row: pd.Series) -> utils.XmlMetadata:
     return metadata_entry
 
 
-def json_to_metadata_entries(json_path: str):
+def json_to_metadata_entries(json_path: str) -> Iterable[utils.XmlMetadata]:
+    """Convert json of XML metadata information to list of XmlMetadata objects.
+
+    Args:
+        json_path: path to json file containing xml metadata information
+
+    Returns:
+        list of XmlMetadata objects
+    """
     with open(json_path, 'r') as json_file:
         metadata_dict = json.load(json_file)
 

@@ -208,7 +208,16 @@ def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_
     return out_name
 
 
-def save_as_json(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_name: str) -> str:
+def save_metadata_as_json(entries: utils.XmlMetadata, out_name: str) -> str:
+    """Save a list of XmlMetadata objects as a json.
+
+    Args:
+        entries: List of metadata objects to be included
+        out_name: Path/name to save json at
+
+    Returns:
+        Path/name where json was saved
+    """
     slc = entries[0].slc
     metadata_dicts = [entry.to_dict()[slc] for entry in entries]
     combined_dict = {}
@@ -249,11 +258,11 @@ def index_safe(slc_name: str, edl_token: str = None, working_dir='.', keep: bool
 
     print('Reading XMLs...')
     xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
-    save_as_json(xml_metadatas, absolute_dir / 'metadata.json')
+    save_metadata_as_json(xml_metadatas, absolute_dir / 'metadata.json')
 
-    # print('Reading Bursts...')
-    # burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
-    # [(absolute_dir / key).write_bytes(value) for key, value in burst_metadatas.items()]
+    print('Reading Bursts...')
+    burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    [(absolute_dir / key).write_bytes(value) for key, value in burst_metadatas.items()]
 
     if not keep:
         os.remove(zipped_safe_path)
