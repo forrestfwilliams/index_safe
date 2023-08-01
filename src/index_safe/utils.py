@@ -76,6 +76,26 @@ class BurstMetadata:
         byte_metadata = b'BURST' + struct.pack('<QQQQQQQQQQ', *data)
         return byte_metadata
 
+    def to_dict(self):
+        dictionary = {
+            'name': self.name,
+            'slc': self.slc,
+            'n_rows': int(self.shape[0]),
+            'n_columns': int(self.shape[1]),
+            'index_offset': {'start': int(self.index_offset.start), 'stop': int(self.index_offset.stop)},
+            'uncompressed_offset': {
+                'start': int(self.uncompressed_offset.start),
+                'stop': int(self.uncompressed_offset.stop),
+            },
+            'valid_window': {
+                'xstart': int(self.valid_window.xstart),
+                'xend': int(self.valid_window.xend),
+                'ystart': int(self.valid_window.ystart),
+                'yend': int(self.valid_window.yend),
+            },
+        }
+        return dictionary
+
 
 @dataclass(frozen=True)
 class XmlMetadata:
