@@ -1,3 +1,4 @@
+import json
 import zlib
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
@@ -9,6 +10,7 @@ import botocore
 import pandas as pd
 import requests
 from tqdm import tqdm
+
 
 try:
     from index_safe import utils
@@ -23,7 +25,7 @@ MAX_WBITS = 15
 def extract_bytes(
     url: str, offset: utils.Offset, client: botocore.client.BaseClient | requests.sessions.Session
 ) -> bytes:
-    """Extract bytes pertaining to a metadata xml file from a Sentinel-1 SLC archive using offset 
+    """Extract bytes pertaining to a metadata xml file from a Sentinel-1 SLC archive using offset
     information from a XmlMetadata object.
 
     Args:
@@ -62,6 +64,19 @@ def row_to_metadata_entry(row: pd.Series) -> utils.XmlMetadata:
     return metadata_entry
 
 
+def json_to_metadata_entries(json_path: str):
+    with open(json_path, 'r') as json_file:
+        metadata_dict = json.load(json_file)
+
+    slc_name = list(metadata_dict.keys())[0]
+    metadata_dict = metadata_dict[slc_name]
+    xml_metadatas = []
+    for key in metadata_dict:
+        offset = utils.Offset(metadata_dict[key]['offset_start'], metadata_dict[key]['offset_stop'])
+        xml_metadatas.append(utils.XmlMetadata(key, slc_name, offset))
+    return xml_metadatas
+
+
 def extract_metadata(slc_name: str, df_file_name: str, strategy='s3'):
     """Extract all xml metadata files from SLC in ASF archive
     using offset information.
@@ -70,16 +85,15 @@ def extract_metadata(slc_name: str, df_file_name: str, strategy='s3'):
         slc_name: name of slc to extract metadata files from
         df_file_name: path to csv file containing extraction
             metadata
-        strategy: strategy to use for download (s3 | http) s3 only 
+        strategy: strategy to use for download (s3 | http) s3 only
             works if runnning from us-west-2 region
 
     Returns:
         path to saved burst raster
     """
     url = utils.get_download_url(slc_name)
-    df = pd.read_csv(df_file_name)
-    slc_df = df.loc[df.slc == slc_name]
-    offsets = [row_to_metadata_entry(row).offset for i, row in slc_df.iterrows()]
+    metadatas = json_to_metadata_entries(df_file_name)
+    offsets = [metadata.offset for metadata in metadatas]
 
     if strategy == 's3':
         creds = utils.get_credentials()
