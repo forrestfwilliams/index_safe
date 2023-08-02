@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-import botocore
 import boto3
+import botocore
 import requests
 import zran
 from tqdm import tqdm
@@ -111,6 +111,7 @@ class XmlMetadata:
     def to_dict(self):
         return {self.slc: {self.name: {'offset_start': self.offset.start, 'offset_stop': self.offset.stop}}}
 
+<<<<<<< HEAD
 
 def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> list[str]:
     """Calculate range parameters for HTTP range requests.
