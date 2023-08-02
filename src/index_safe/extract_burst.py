@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 import struct
 import tempfile
@@ -5,7 +7,7 @@ from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Tuple
 
 import boto3
 import numpy as np
@@ -24,7 +26,7 @@ except ModuleNotFoundError:
 gdal.UseExceptions()
 
 KB = 1024
-MB = 1024 * KB
+MB = KB * KB
 
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
@@ -142,7 +144,38 @@ def row_to_burst_entry(row: pd.Series) -> utils.BurstMetadata:
     return burst_entry
 
 
-def bytes_to_burst_entry(burst_name: str):
+def json_to_burst_metadata(burst_json_path: str) -> Tuple[zran.Index, utils.BurstMetadata]:
+    """Convert burst metadata json file to a BurstMetadata object and zran index file.
+
+    Args:
+        burst_json_path: path to burst metadata json file
+
+    Returns:
+        zran index file and BurstMetadata object
+    """
+    with open(burst_json_path, 'r') as json_file:
+        metadata_dict = json.load(json_file)
+
+    shape = (metadata_dict['n_rows'], metadata_dict['n_columns'])
+    index_offset = utils.Offset(metadata_dict['index_offset']['start'], metadata_dict['index_offset']['stop'])
+    decompressed_offset = utils.Offset(
+        metadata_dict['uncompressed_offset']['start'], metadata_dict['uncompressed_offset']['stop']
+    )
+    window = utils.Window(
+        metadata_dict['valid_window']['xstart'],
+        metadata_dict['valid_window']['xend'],
+        metadata_dict['valid_window']['ystart'],
+        metadata_dict['valid_window']['yend'],
+    )
+    burst_metadata = utils.BurstMetadata(
+        metadata_dict['name'], metadata_dict['slc'], shape, index_offset, decompressed_offset, window
+    )
+    decoded_bytes = base64.b64decode(metadata_dict['dflidx_64encoded'])
+    index = zran.Index.parse_index_file(decoded_bytes)
+    return index, burst_metadata
+
+
+def bytes_to_burst_entry(burst_name: str) -> Tuple[zran.Index, utils.BurstMetadata]:
     """Convert header bytes of burst-specifc
     index file to a burst metadata object.
     Index file must be in working directory.
@@ -153,6 +186,7 @@ def bytes_to_burst_entry(burst_name: str):
     Returns:
         burst metadata object
     """
+    burst_name = Path(burst_name)
     with open(str(burst_name.with_suffix('.bstidx')), 'rb') as f:
         byte_data = f.read(85)
         index_data = f.read()
@@ -214,7 +248,7 @@ def extract_burst(burst_name: str, edl_token: str = None, working_dir: Path = Pa
         path to saved burst raster
     """
     burst_path = working_dir / burst_name
-    index, burst_metadata = bytes_to_burst_entry(burst_path)
+    index, burst_metadata = json_to_burst_metadata(Path(burst_name).with_suffix('.json'))
     url = utils.get_download_url(burst_metadata.slc)
     burst_bytes = extract_bytes_by_burst(url, burst_metadata, index, edl_token, working_dir)
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
@@ -232,11 +266,11 @@ def lambda_handler(event, context):
     s3 = boto3.client('s3')
     index_bucket_name = os.environ.get('IndexBucketName')
     extract_bucket_name = os.environ.get('ExtractBucketName')
-    bstidx_name = Path(event['burst']).with_suffix('.bstidx')
+    burst_json_name = Path(event['burst']).with_suffix('.json')
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = Path(tmpdirname)
         utils.lambda_get_credentials(event['edl_token'], tmpdir, s3, extract_bucket_name, 'credentials.json')
-        s3.download_file(index_bucket_name, str(bstidx_name), str(tmpdir / bstidx_name))
+        s3.download_file(index_bucket_name, str(burst_json_name), str(tmpdir / burst_json_name))
         tmp_path = extract_burst(event['burst'], event['edl_token'], working_dir=tmpdir)
         s3.upload_file(str(tmp_path), extract_bucket_name, tmp_path.name)
     print('## PROCESS COMPLETE!')
