@@ -12,7 +12,6 @@ from typing import Iterable, Union
 
 import boto3
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 
 
@@ -181,39 +180,6 @@ def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: boo
             bstidx_name = Path(burst_name).with_suffix('.bstidx').name
             bursts[bstidx_name] = burst.to_bytes() + dflidx
     return bursts
-
-
-def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_name: str) -> str:
-    """Save a list of metadata objects as a csv.
-
-    Args:
-        entries: List of metadata objects to be included
-        out_name: Path/name to save csv at
-
-    Returns:
-        Path/name where csv was saved
-    """
-    if isinstance(entries[0], utils.XmlMetadata):
-        columns = ['name', 'slc', 'offset_start', 'offset_stop']
-    else:
-        columns = [
-            'name',
-            'slc',
-            'n_rows',
-            'n_columns',
-            'index_start',
-            'index_stop',
-            'offset_start',
-            'offset_stop',
-            'valid_x_start',
-            'valid_x_stop',
-            'valid_y_start',
-            'valid_y_stop',
-        ]
-
-    df = pd.DataFrame([x.to_tuple() for x in entries], columns=columns)
-    df.to_csv(out_name, index=False)
-    return out_name
 
 
 def save_xml_metadata_as_json(entries: utils.XmlMetadata, out_name: str) -> str:

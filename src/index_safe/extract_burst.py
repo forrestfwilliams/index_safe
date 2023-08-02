@@ -9,7 +9,6 @@ from typing import Iterable, Tuple
 
 import boto3
 import numpy as np
-import pandas as pd
 import requests
 import zran
 from osgeo import gdal
@@ -101,25 +100,6 @@ def invalid_to_nodata(array: np.ndarray, valid_window: utils.Window, nodata_valu
     is_not_valid[valid_window.ystart : valid_window.yend, valid_window.xstart : valid_window.xend] = False
     array[is_not_valid] = nodata_value
     return array
-
-
-def row_to_burst_entry(row: pd.Series) -> utils.BurstMetadata:
-    """Convert row of burst metadata dataframe to a burst metadata
-    object.
-
-    Args:
-        row: row of dataframe to convert
-
-    Returns:
-        burst metadata object
-    """
-    shape = (row['n_rows'], row['n_columns'])
-    index_offset = utils.Offset(row['index_start'], row['index_stop'])
-    decompressed_offset = utils.Offset(row['offset_start'], row['offset_stop'])
-    window = utils.Window(row['valid_x_start'], row['valid_x_stop'], row['valid_y_start'], row['valid_y_stop'])
-
-    burst_entry = utils.BurstMetadata(row['name'], row['slc'], shape, index_offset, decompressed_offset, window)
-    return burst_entry
 
 
 def json_to_burst_metadata(burst_json_path: str) -> Tuple[zran.Index, utils.BurstMetadata]:
