@@ -8,7 +8,6 @@ from typing import Iterable
 
 import boto3
 import botocore
-import pandas as pd
 import requests
 from tqdm import tqdm
 
@@ -50,21 +49,6 @@ def extract_bytes(
     return body
 
 
-def row_to_metadata_entry(row: pd.Series) -> utils.XmlMetadata:
-    """Convert row of xml metadata dataframe to a xml metadata
-    object.
-
-    Args:
-        row: row of dataframe to convert
-
-    Returns:
-        xml metadata object
-    """
-    compressed_offset = utils.Offset(row['offset_start'], row['offset_stop'])
-    metadata_entry = utils.XmlMetadata(row['name'], row['slc'], compressed_offset)
-    return metadata_entry
-
-
 def json_to_metadata_entries(json_path: str) -> Iterable[utils.XmlMetadata]:
     """Convert json of XML metadata information to list of XmlMetadata objects.
 
@@ -86,22 +70,18 @@ def json_to_metadata_entries(json_path: str) -> Iterable[utils.XmlMetadata]:
     return xml_metadatas
 
 
-def extract_metadata(slc_name: str, df_file_name: str, strategy='s3'):
+def extract_metadata(slc_name: str, json_file_path: str, strategy='s3'):
     """Extract all xml metadata files from SLC in ASF archive
     using offset information.
 
     Args:
         slc_name: name of slc to extract metadata files from
-        df_file_name: path to csv file containing extraction
-            metadata
+        json_file_name: path to csv file containing extraction metadata
         strategy: strategy to use for download (s3 | http) s3 only
             works if runnning from us-west-2 region
-
-    Returns:
-        path to saved burst raster
     """
     url = utils.get_download_url(slc_name)
-    metadatas = json_to_metadata_entries(df_file_name)
+    metadatas = json_to_metadata_entries(json_file_path)
     offsets = [metadata.offset for metadata in metadatas]
 
     if strategy == 's3':
@@ -122,20 +102,18 @@ def extract_metadata(slc_name: str, df_file_name: str, strategy='s3'):
     with open(f'{slc_name}.xml', 'wb') as f:
         f.write(content)
 
-    return None
-
 
 def main():
     """Example Command:
 
-    extract_metadata.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85 metadata.csv
+    extract_metadata.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85 metadata.json
     """
     parser = ArgumentParser()
     parser.add_argument('slc_name')
-    parser.add_argument('df')
+    parser.add_argument('metadata_path')
     args = parser.parse_args()
 
-    extract_metadata(args.slc_name, args.df)
+    extract_metadata(args.slc_name, args.metadata_path)
 
 
 if __name__ == '__main__':

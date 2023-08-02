@@ -4,18 +4,15 @@ channels:
   - nodefaults
 dependencies:
   - python>=3.8
+  - pip
   - gdal
   - boto3
   - tqdm
   - numpy
-  - pandas
   - requests
-  - fsspec
-  - s3fs
-  - aiohttp
-  - pipreqs
   # For packaging, and testing
   - pytest
+  - pipreqs
   - pip:
     - zran
 
