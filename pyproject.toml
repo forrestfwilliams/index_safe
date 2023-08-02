@@ -24,11 +24,7 @@ dependencies = [
   "boto3",
   "tqdm",
   "numpy",
-  "pandas",
   "requests",
-  "fsspec",
-  "s3fs",
-  "aiohttp"
 ]
 dynamic = ["version"]
 
