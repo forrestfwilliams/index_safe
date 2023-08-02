@@ -4,6 +4,7 @@ channels:
   - nodefaults
 dependencies:
   - python>=3.8
+  - pip
   - gdal
   - boto3
   - tqdm
