@@ -1,0 +1,8 @@
+{
+	"lambdaARN": "arn:aws:lambda:us-west-2:050846374571:function:ffwilliams2-test-indexer-BurstExtractFunction-kcaujwt92zHk",
+	"powerValues": [1024, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 9216, 10240],
+	"num": 5,
+	"payload": {"burst": "S1A_IW_SLC__1SDV_20201203T162353_20201203T162420_035524_042744_6D5C_IW1_VH_4.tiff","edl_token": "EDL_TOKEN"},
+	"parallelInvocation": true,
+	"strategy": "cost"
+}

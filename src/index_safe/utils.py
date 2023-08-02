@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import struct
 import zipfile
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 import boto3
+import botocore
 import requests
 import zran
 from tqdm import tqdm
@@ -110,7 +112,31 @@ class XmlMetadata:
         return {self.slc: {self.name: {'offset_start': self.offset.start, 'offset_stop': self.offset.stop}}}
 
 
-# FIXME json is not actual name of output
+def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> list[str]:
+    """Calculate range parameters for HTTP range requests.
+    Useful when downloading large files in chunks.
+
+    Args:
+        total_size: total size of request
+        offset: offset to start request
+        chunk_size: size of each chunk
+
+    Returns:
+        list of range parameters
+    """
+    num_parts = int(math.ceil(total_size / float(chunk_size)))
+    range_params = []
+    for part_index in range(num_parts):
+        start_range = (part_index * chunk_size) + offset
+        if part_index == num_parts - 1:
+            end_range = str(total_size + offset - 1)
+        else:
+            end_range = start_range + chunk_size - 1
+
+        range_params.append(f'bytes={start_range}-{end_range}')
+    return range_params
+
+
 def get_tmp_access_keys(save_path: Path = Path('./credentials.json'), edl_token: str = None) -> dict:
     """Get temporary AWS access keys for direct
     access to ASF data in S3.
@@ -153,6 +179,40 @@ def get_credentials(edl_token: str = None, working_dir=Path('.')) -> dict:
         credentials = get_tmp_access_keys(credential_file, edl_token)
 
     return credentials
+
+
+def lambda_get_credentials(edl_token, working_dir, client, bucket, key):
+    """Gets temporary ASF AWS credentials for a lambda function.
+    Checks if credentials exist in S3 and are not expired. If neither are true,
+    a new version of the credentials is uploaded to S3.
+
+    Args:
+        edl_token: EDL token
+        working_dir: working directory
+        client: boto3 client
+        bucket: S3 bucket
+        key: S3 key
+    """
+    credential_file = working_dir / 'credentials.json'
+    credentials_need_update = False
+
+    try:
+        client.download_file(bucket, key, credential_file)
+    except botocore.exceptions.ClientError:
+        print('The credentials do not exist, will create.')
+        credentials_need_update = True
+        get_tmp_access_keys(credential_file, edl_token)
+
+    credentials = json.loads(credential_file.read_text())
+    expiration_time = datetime.fromisoformat(credentials['expiration'])
+    current_time = datetime.now(timezone.utc)
+
+    if current_time >= expiration_time:
+        credentials_need_update = True
+        get_tmp_access_keys(credential_file, edl_token)
+
+    if credentials_need_update:
+        client.upload_file(credential_file, bucket, key)
 
 
 def get_download_url(scene: str) -> str:

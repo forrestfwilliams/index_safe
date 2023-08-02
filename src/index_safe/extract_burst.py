@@ -4,6 +4,8 @@ import os
 import struct
 import tempfile
 from argparse import ArgumentParser
+from concurrent.futures import ThreadPoolExecutor
+from itertools import repeat
 from pathlib import Path
 from typing import Iterable, Tuple
 
@@ -29,6 +31,23 @@ MB = KB * KB
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
+def s3_range_get(client: boto3.client, key: str, range_header: str, bucket: str = BUCKET) -> bytes:
+    """Get a range of bytes from an S3 object.
+    Used in threading to download a large file in chunks.
+
+    Args:
+        client: boto3 S3 client
+        key: S3 object key
+        range_header: range header string
+        bucket: S3 bucket name (default is ASF's S1 SLC bucket)
+    Returns:
+        bytes of object
+    """
+    resp = client.get_object(Bucket=BUCKET, Key=key, Range=range_header)
+    body = resp['Body'].read()
+    return body
+
+
 def extract_bytes_by_burst(
     url: str,
     metadata: utils.BurstMetadata,
@@ -48,7 +67,6 @@ def extract_bytes_by_burst(
     Returns:
         bytes representing a single burst
     """
-    range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop - 1}'
     if strategy == 's3':
         creds = utils.get_credentials(edl_token, working_dir)
         client = boto3.client(
@@ -57,9 +75,14 @@ def extract_bytes_by_burst(
             aws_secret_access_key=creds["secretAccessKey"],
             aws_session_token=creds["sessionToken"],
         )
-        resp = client.get_object(Bucket=BUCKET, Key=Path(url).name, Range=range_header)
-        body = resp['Body'].read()
+        total_size = (metadata.index_offset.stop - 1) - metadata.index_offset.start
+        range_headers = utils.calculate_range_parameters(total_size, metadata.index_offset.start, 20 * MB)
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            results = executor.map(s3_range_get, repeat(client), repeat(Path(url).name), range_headers)
+            body = b''.join(results)
+
     elif strategy == 'http':
+        range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop - 1}'
         client = requests.session()
         resp = client.get(url, headers={'Range': range_header})
         body = resp.content
@@ -79,8 +102,7 @@ def burst_bytes_to_numpy(burst_bytes: bytes, shape: Iterable[int]) -> np.ndarray
     Returns:
         burst array with a CFloat data type
     """
-    tmp_array = np.frombuffer(burst_bytes, dtype=np.int16).astype(float)
-    array = tmp_array.copy()
+    array = np.frombuffer(burst_bytes, dtype=np.int16).astype(float)
     array.dtype = 'complex'
     array = array.reshape(shape).astype(np.csingle)
     return array
@@ -247,6 +269,7 @@ def lambda_handler(event, context):
     burst_json_name = Path(event['burst']).with_suffix('.json')
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmpdir = Path(tmpdirname)
+        utils.lambda_get_credentials(event['edl_token'], tmpdir, s3, extract_bucket_name, 'credentials.json')
         s3.download_file(index_bucket_name, str(burst_json_name), str(tmpdir / burst_json_name))
         tmp_path = extract_burst(event['burst'], event['edl_token'], working_dir=tmpdir)
         s3.upload_file(str(tmp_path), extract_bucket_name, tmp_path.name)
