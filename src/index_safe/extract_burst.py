@@ -217,27 +217,27 @@ def array_to_raster(out_path: Path, array: np.ndarray, fmt: str = 'GTiff') -> st
     return out_path
 
 
-def extract_burst(burst_name: str, edl_token: str = None, working_dir: Path = Path('.')) -> str:
+def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Path = Path('.')) -> str:
     """Extract burst from SLC in ASF archive using a burst-level index
-    file. Index must be in working directory.
+    file. Index must be available locally.
 
     Args:
-        burst_name: name of burst to extract
+        burst_index_path: path to burst index file on disk
 
     Returns:
         path to saved burst raster
     """
-    burst_path = working_dir / burst_name
-    index, burst_metadata = json_to_burst_metadata(Path(burst_name).with_suffix('.json'))
+    index, burst_metadata = json_to_burst_metadata(burst_index_path)
     url = utils.get_download_url(burst_metadata.slc)
     burst_bytes = extract_bytes_by_burst(url, burst_metadata, index, edl_token, working_dir)
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
-    out_path = array_to_raster(burst_path, burst_array)
+    out_path = array_to_raster(burst_metadata.name, burst_array)
     return out_path
 
 
 def lambda_handler(event, context):
+    # TODO need to test with new interface
     print('## ENVIRONMENT VARIABLES')
     print(os.environ)
     print('## EVENT')
@@ -251,7 +251,7 @@ def lambda_handler(event, context):
         tmpdir = Path(tmpdirname)
         utils.lambda_get_credentials(event['edl_token'], tmpdir, s3, extract_bucket_name, 'credentials.json')
         s3.download_file(index_bucket_name, str(burst_json_name), str(tmpdir / burst_json_name))
-        tmp_path = extract_burst(event['burst'], event['edl_token'], working_dir=tmpdir)
+        tmp_path = extract_burst(burst_json_name, event['edl_token'], working_dir=tmpdir)
         s3.upload_file(str(tmp_path), extract_bucket_name, tmp_path.name)
     print('## PROCESS COMPLETE!')
 
@@ -259,13 +259,13 @@ def lambda_handler(event, context):
 def main():
     """Example Command:
 
-    extract_burst.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_0.tiff
+    extract_burst.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_0.json
     """
     parser = ArgumentParser()
-    parser.add_argument('burst')
+    parser.add_argument('index_path')
     args = parser.parse_args()
 
-    extract_burst(args.burst)
+    extract_burst(args.index_path)
 
 
 if __name__ == '__main__':

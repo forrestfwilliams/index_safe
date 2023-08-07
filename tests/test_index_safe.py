@@ -214,7 +214,8 @@ def test_invalid_to_nodata(golden_bytes):
 def test_golden_by_burst(golden_tiff):
     safe_name = str(Path(ZIP_NAME).with_suffix(''))
     create_index.index_safe(safe_name)
-    extract_burst.extract_burst(TEST_BURST_NAME)
+    index_path = str(Path(TEST_BURST_NAME).with_suffix('.json'))
+    extract_burst.extract_burst(index_path)
 
     valid_data = load_geotiff(BURST_VALID_PATH)[0]
     test_data = load_geotiff(TEST_BURST_NAME)[0]
