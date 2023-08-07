@@ -234,17 +234,17 @@ def index_safe(slc_name: str, edl_token: str = None, working_dir='.', output_jso
 
     print('Reading XMLs...')
     xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
-    save_xml_metadata_as_json(xml_metadatas, absolute_dir / 'metadata.json')
+    save_xml_metadata_as_json(xml_metadatas, absolute_dir / f'{slc_name}_metadata.json')
 
-    print('Reading Bursts...')
-    burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
-
-    if output_json:
-        for key, value in burst_metadatas.items():
-            with open(key, 'w') as json_file:
-                json.dump(value, json_file)
-    else:
-        [(absolute_dir / key).write_bytes(value) for key, value in burst_metadatas.items()]
+    # print('Reading Bursts...')
+    # burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    #
+    # if output_json:
+    #     for key, value in burst_metadatas.items():
+    #         with open(key, 'w') as json_file:
+    #             json.dump(value, json_file)
+    # else:
+    #     [(absolute_dir / key).write_bytes(value) for key, value in burst_metadatas.items()]
 
     if not keep:
         os.remove(zipped_safe_path)

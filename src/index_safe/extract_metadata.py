@@ -70,18 +70,18 @@ def json_to_metadata_entries(json_path: str) -> Iterable[utils.XmlMetadata]:
     return xml_metadatas
 
 
-def extract_metadata(slc_name: str, json_file_path: str, strategy='s3'):
+def extract_metadata(json_file_path: str, strategy='s3'):
     """Extract all xml metadata files from SLC in ASF archive
     using offset information.
 
     Args:
-        slc_name: name of slc to extract metadata files from
         json_file_name: path to csv file containing extraction metadata
         strategy: strategy to use for download (s3 | http) s3 only
             works if runnning from us-west-2 region
     """
-    url = utils.get_download_url(slc_name)
     metadatas = json_to_metadata_entries(json_file_path)
+    slc_name = metadatas[0].slc
+    url = utils.get_download_url(slc_name)
     offsets = [metadata.offset for metadata in metadatas]
 
     if strategy == 's3':
@@ -106,14 +106,13 @@ def extract_metadata(slc_name: str, json_file_path: str, strategy='s3'):
 def main():
     """Example Command:
 
-    extract_metadata.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85 metadata.json
+    extract_metadata.py S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_metadata.json
     """
     parser = ArgumentParser()
-    parser.add_argument('slc_name')
     parser.add_argument('metadata_path')
     args = parser.parse_args()
 
-    extract_metadata(args.slc_name, args.metadata_path)
+    extract_metadata(args.metadata_path)
 
 
 if __name__ == '__main__':
