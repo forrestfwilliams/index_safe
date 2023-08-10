@@ -2,6 +2,7 @@ __pycache__/*
 tests/__pycache__/*
 src/index_safe/__pycache__/*
 src/index_safe.egg-info/*
+build/*
 .DS_Store
 tests/credentials.json
 .aws-sam/*
