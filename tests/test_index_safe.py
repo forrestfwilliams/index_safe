@@ -210,7 +210,7 @@ def test_invalid_to_nodata(golden_bytes):
 
 
 # Golden, must be run from tests directory
-# @pytest.mark.skip(reason='Integration testing')
+@pytest.mark.skip(reason='Integration testing')
 def test_golden_by_burst(golden_tiff):
     safe_name = str(Path(ZIP_NAME).with_suffix(''))
     create_index.index_safe(safe_name)
