@@ -138,13 +138,13 @@ def test_burst_specific_index(golden_zip):
     # uncompressed = utils.Offset(start=461226795, stop=614932715)
 
     # IW2 VV 7
-    compressed = utils.Offset(start=2986776876, stop=3087580207)
+    compressed = utils.Offset(start=2987161209, stop=3087580208)
     uncompressed = utils.Offset(start=1076050475, stop=1229756395)
 
     indexer = utils.ZipIndexer(golden_zip, TIFF_NAME)
     indexer.create_full_dflidx()
     compressed_offset, uncompressed_offset, index = indexer.subset_dflidx(
-        starts=[uncompressed.start], stops=[uncompressed.stop]
+        locations=[uncompressed.start], end_location=uncompressed.stop
     )
 
     assert compressed_offset.start == compressed.start
