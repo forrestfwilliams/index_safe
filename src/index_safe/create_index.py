@@ -159,7 +159,7 @@ def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: boo
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
 
         compressed_offset, uncompressed_offset, modified_index = indexer.subset_dflidx(
-            starts=[burst_offset.start], stops=[burst_offset.stop]
+            locations=[burst_offset.start], end_location=burst_offset.stop
         )
         dflidx = modified_index.create_index_file()
 

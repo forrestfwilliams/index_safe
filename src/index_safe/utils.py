@@ -317,19 +317,21 @@ class ZipIndexer:
 
         self.index = zran.Index.create_index(self.body, span=self.spacing)
 
-    def subset_dflidx(self, starts: Iterable[int] = [], stops: Iterable[int] = []) -> Iterable:
+    def subset_dflidx(self, locations: Iterable[int], end_location: int) -> Iterable:
         """Build base DFLIDX index for a Zip member file that has
         been compresed using zlib (DEFLATE).
 
         Args:
-            member_name: name of zip member
-            starts: uncompressed locations to provide indexes before
-            stops: uncompressed locations to provide indexes after
+            locations: A list of uncompressed locations to be included in the new index.
+                       The closes point before each location will be selected.
+            end_location: The uncompressed endpoint of the index. Used to determine file size.
 
         Returns:
             bytes of dflidx, and compressed range of member in zip archive
         """
-        compressed_offset, uncompressed_offset, modified_index = self.index.create_modified_index(starts, stops)
+        compressed_offset, uncompressed_offset, modified_index = self.index.create_modified_index(
+            locations, end_location
+        )
         compressed_offset = Offset(
             compressed_offset[0] + self.file_offset.start, compressed_offset[1] + self.file_offset.start
         )
