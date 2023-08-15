@@ -12,6 +12,7 @@ from typing import Iterable, Union
 
 import boto3
 import numpy as np
+from osgeo import gdal
 from tqdm import tqdm
 
 
@@ -19,6 +20,8 @@ try:
     from index_safe import utils
 except ModuleNotFoundError:
     import utils
+
+gdal.UseExceptions()
 
 
 def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:
@@ -136,8 +139,17 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
     return '_'.join(all_parts) + '.tiff'
 
 
+def get_gcps(zipped_safe_path: str, zip_member_path: str):
+    vsi_path = f'/vsizip/{zipped_safe_path.name}/{zip_member_path}'
+    dataset = gdal.Open(vsi_path)
+    gcps = dataset.GetGCPs()
+
+    dataset = None
+    return gcps
+
+
 def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: bool = True) -> Union[dict, bytes]:
-    """Create a burst-specificindex containing information needed to download burst tiff from compressed
+    """Create a burst-specific index containing information needed to download burst tiff from compressed
     SAFE file directly, and remove invalid data.
 
     Args:
@@ -151,6 +163,7 @@ def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: boo
     slc_name = Path(zipped_safe_path).with_suffix('').name
     tiff_name = Path(zinfo.filename).name
     burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
+    tiff_gcps = get_gcps(zipped_safe_path, zinfo.filename)
 
     bursts = {}
     indexer = utils.ZipIndexer(zipped_safe_path, tiff_name)
