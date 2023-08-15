@@ -174,7 +174,7 @@ def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: boo
         if output_json:
             bstidx_name = Path(burst_name).with_suffix('.json').name
             burst_dictionary = burst.to_dict()
-            burst_dictionary['dflidx_64encoded'] = base64.b64encode(dflidx).decode('utf-8')
+            burst_dictionary['dflidx_b64'] = base64.b64encode(dflidx).decode('utf-8')
             bursts[bstidx_name] = burst_dictionary
         else:
             bstidx_name = Path(burst_name).with_suffix('.bstidx').name
@@ -206,7 +206,7 @@ def save_xml_metadata_as_json(entries: utils.XmlMetadata, out_name: str) -> str:
 def index_safe(slc_name: str, edl_token: str = None, working_dir='.', output_json: bool = True, keep: bool = True):
     """Create the index and other metadata needed to directly download
     and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
-    this information in csv files. All information for extracting a burst is included in
+    this information in json files. All information for extracting a burst is included in
     the index file.
 
     Args:

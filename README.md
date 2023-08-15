@@ -26,16 +26,16 @@ Run `create_index.py` Ex:
 ```bash
 create_index S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85
 ```
-This will create a `metadata.csv` and burst index files (`*.gzidx`) that contain the information needed to download the metadata/data directly.
+This will create a `{GRANULE_NAME}.json` and burst index json files (`{GRANULE_NAME}_{SWATH_NAME_{POLARIZATION}.json`) that contain the information needed to download the metadata/data directly.
 
 Then, run `extract_burst.py` Ex:
 ```bash
-extract_burst S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.tiff
+extract_burst S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_IW2_VV_0.json
 ```
 to get the burst image data
 
 Then, run `extract_metadata.py` Ex:
 ```bash
-extract_metadata S1A_IW_SLC__1SDV_20200604T022251_20200604T022318 metadata.csv
+extract_metadata S1A_IW_SLC__1SDV_20200604T022251_20200604T022318.json
 ```
 to get the burst metadata

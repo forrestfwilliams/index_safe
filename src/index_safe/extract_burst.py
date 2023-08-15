@@ -150,7 +150,7 @@ def json_to_burst_metadata(burst_json_path: str) -> Tuple[zran.Index, utils.Burs
     burst_metadata = utils.BurstMetadata(
         metadata_dict['name'], metadata_dict['slc'], shape, index_offset, decompressed_offset, window
     )
-    decoded_bytes = base64.b64decode(metadata_dict['dflidx_64encoded'])
+    decoded_bytes = base64.b64decode(metadata_dict['dflidx_b64'])
     index = zran.Index.parse_index_file(decoded_bytes)
     return index, burst_metadata
 
