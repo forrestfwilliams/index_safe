@@ -75,7 +75,7 @@ def extract_metadata(json_file_path: str, strategy='s3'):
     using offset information.
 
     Args:
-        json_file_name: path to csv file containing extraction metadata
+        json_file_path: path to json file containing extraction metadata
         strategy: strategy to use for download (s3 | http) s3 only
             works if runnning from us-west-2 region
     """
