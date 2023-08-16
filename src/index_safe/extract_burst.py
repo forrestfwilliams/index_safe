@@ -219,10 +219,15 @@ def array_to_raster(
 
     driver = gdal.GetDriverByName(fmt)
     out_dataset = driver.Create(str(out_path), n_cols, n_rows, 1, gdal.GDT_CInt16)
+
     out_dataset.GetRasterBand(1).WriteArray(array)
+
     out_dataset.SetProjection(epsg_4326.ExportToWkt())
 
-    gdal_gcps = [gdal.GCP(point.lon, point.lat, 0.0, point.pixel, point.line) for point in gcps]
+    band = out_dataset.GetRasterBand(1)
+    band.SetNoDataValue(0)
+
+    gdal_gcps = [gdal.GCP(point.lon, point.lat, point.hgt, point.pixel, point.line) for point in gcps]
     out_dataset.SetGCPs(gdal_gcps, epsg_4326.ExportToWkt())
 
     out_dataset = None

@@ -88,9 +88,10 @@ def get_gcps_from_xml(annotation_xml: ET.Element) -> Iterable[utils.GeoControlPo
     for xml_gcp in xml_gcps:
         pixel = int(xml_gcp.findtext('.//{*}pixel'))
         line = int(xml_gcp.findtext('.//{*}line'))
-        longitude = float(xml_gcp.findtext('.//{*}longitude'))
-        latitude = float(xml_gcp.findtext('.//{*}latitude'))
-        gcps.append(utils.GeoControlPoint(pixel, line, longitude, latitude))
+        longitude = round(float(xml_gcp.findtext('.//{*}longitude')), 7)
+        latitude = round(float(xml_gcp.findtext('.//{*}latitude')), 7)
+        height = round(float(xml_gcp.findtext('.//{*}height')), 7)
+        gcps.append(utils.GeoControlPoint(pixel, line, longitude, latitude, height))
     return gcps
 
 
@@ -111,9 +112,11 @@ def format_gcps_for_burst(
     gcps = []
     burst_starting_line = burst_number * burst_n_lines
     for gcp in swath_gcps:
-        gcps.append(utils.GeoControlPoint(gcp.pixel, gcp.line - burst_starting_line, gcp.lon, gcp.lat))
-    relevant_gcps = [gcp for gcp in gcps if 0 <= gcp.line <= burst_n_lines]
-    return relevant_gcps
+        gcps.append(utils.GeoControlPoint(gcp.pixel, gcp.line - burst_starting_line, gcp.lon, gcp.lat, gcp.hgt))
+
+    # TODO: Why does this create incorrect geolocation
+    # relevant_gcps = [gcp for gcp in gcps if 0 <= gcp.line <= burst_n_lines]
+    return gcps
 
 
 def get_burst_annotation_data(zipped_safe_path: str, swath_path: str) -> Iterable:

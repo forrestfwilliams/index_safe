@@ -27,6 +27,7 @@ class GeoControlPoint:
     line: int
     lon: float
     lat: float
+    hgt: float
 
 
 # TODO can also be np.array
@@ -110,6 +111,7 @@ class BurstMetadata:
                     'line': int(gcp.line),
                     'lon': float(gcp.lon),
                     'lat': float(gcp.lat),
+                    'hgt': float(gcp.hgt),
                 }
                 for gcp in self.gcps
             ],
