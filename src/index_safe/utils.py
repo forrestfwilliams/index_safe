@@ -21,7 +21,7 @@ SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
-@dataclass()
+@dataclass(frozen=True)
 class GeoControlPoint:
     pixel: int
     line: int

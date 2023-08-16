@@ -147,8 +147,9 @@ def json_to_burst_metadata(burst_json_path: str) -> Tuple[zran.Index, utils.Burs
         metadata_dict['valid_window']['ystart'],
         metadata_dict['valid_window']['yend'],
     )
+    gcps = [utils.GeoControlPoint(**gcp) for gcp in metadata_dict['gcps']]
     burst_metadata = utils.BurstMetadata(
-        metadata_dict['name'], metadata_dict['slc'], shape, index_offset, decompressed_offset, window
+        metadata_dict['name'], metadata_dict['slc'], shape, index_offset, decompressed_offset, window, gcps
     )
     decoded_bytes = base64.b64decode(metadata_dict['dflidx_b64'])
     index = zran.Index.parse_index_file(decoded_bytes)
@@ -198,21 +199,32 @@ def bytes_to_burst_entry(burst_name: str) -> Tuple[zran.Index, utils.BurstMetada
     return index, burst_entry
 
 
-def array_to_raster(out_path: Path, array: np.ndarray, fmt: str = 'GTiff') -> str:
+def array_to_raster(
+    out_path: Path, array: np.ndarray, gcps: Iterable[utils.GeoControlPoint], fmt: str = 'GTiff'
+) -> str:
     """Save a burst array as gdal raster.
 
     Args:
         out_path: path to save file to
         array: array to save as raster
+        gcps: list of gcps to use for georeferencing
         fmt: file format to use
 
     Returns:
         path to saved raster
     """
-    driver = gdal.GetDriverByName(fmt)
     n_rows, n_cols = array.shape
-    out_dataset = driver.Create(str(out_path), n_cols, n_rows, 1, gdal.GDT_CFloat32)
+    epsg_4326 = gdal.osr.SpatialReference()
+    epsg_4326.ImportFromEPSG(4326)
+
+    driver = gdal.GetDriverByName(fmt)
+    out_dataset = driver.Create(str(out_path), n_cols, n_rows, 1, gdal.GDT_CInt16)
     out_dataset.GetRasterBand(1).WriteArray(array)
+    out_dataset.SetProjection(epsg_4326.ExportToWkt())
+
+    gdal_gcps = [gdal.GCP(point.lon, point.lat, 0.0, point.pixel, point.line) for point in gcps]
+    out_dataset.SetGCPs(gdal_gcps, epsg_4326.ExportToWkt())
+
     out_dataset = None
     return out_path
 
@@ -232,7 +244,7 @@ def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Pat
     burst_bytes = extract_bytes_by_burst(url, burst_metadata, index, edl_token, working_dir)
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
-    out_path = array_to_raster(burst_metadata.name, burst_array)
+    out_path = array_to_raster(burst_metadata.name, burst_array, burst_metadata.gcps)
     return out_path
 
 
