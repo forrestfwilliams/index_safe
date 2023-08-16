@@ -8,6 +8,7 @@ from typing import Iterable
 
 import boto3
 import botocore
+import lxml
 import requests
 from tqdm import tqdm
 
@@ -70,6 +71,19 @@ def json_to_metadata_entries(json_path: str) -> Iterable[utils.XmlMetadata]:
     return xml_metadatas
 
 
+def make_input_xml(manifest_name, metadata_names) -> lxml.etree._Element:
+    root = lxml.etree.Element('files')
+
+    for metadata_name in metadata_names:
+        child = lxml.etree.SubElement(root, 'file')
+        child.set('name', metadata_name)
+        child.set('label', metadata_name)
+
+    root.attrib['manifest'] = manifest_name
+
+    return root
+
+
 def extract_metadata(json_file_path: str, strategy='s3'):
     """Extract all xml metadata files from SLC in ASF archive
     using offset information.
@@ -98,9 +112,13 @@ def extract_metadata(json_file_path: str, strategy='s3'):
     with ThreadPoolExecutor(max_workers=20) as executor:
         results = list(tqdm(executor.map(extract_bytes, repeat(url), offsets, repeat(client)), total=len(offsets)))
 
-    content = b''.join(results)
-    with open(f'{slc_name}.xml', 'wb') as f:
-        f.write(content)
+    names = [metadata.name for metadata in metadatas]
+    renderer = XsltRenderer(Path(__file__).parent / 'burst.xsl')
+    burst_metadata_path = 'transformed.xml'
+    renderer.render_to(burst_metadata_path, metadata_paths, manifest_path)
+    # content = b''.join(results)
+    # with open(f'{slc_name}.xml', 'wb') as f:
+    #     f.write(content)
 
 
 def main():
