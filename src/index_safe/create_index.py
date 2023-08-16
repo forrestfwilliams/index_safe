@@ -74,6 +74,48 @@ def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:
     return valid_window
 
 
+def get_gcps_from_xml(annotation_xml: ET.Element) -> Iterable[utils.GeoControlPoint]:
+    """Get geolocation control points from annotation XML.
+
+    Args:
+        annotation_xml: root element of annotation XML
+
+    Returns:
+        List of geolocation control points
+    """
+    xml_gcps = annotation_xml.findall('.//{*}geolocationGridPoint')
+    gcps = []
+    for xml_gcp in xml_gcps:
+        pixel = int(xml_gcp.findtext('.//{*}pixel'))
+        line = int(xml_gcp.findtext('.//{*}line'))
+        longitude = float(xml_gcp.findtext('.//{*}longitude'))
+        latitude = float(xml_gcp.findtext('.//{*}latitude'))
+        gcps.append(utils.GeoControlPoint(pixel, line, longitude, latitude))
+    return gcps
+
+
+def format_gcps_for_burst(
+    burst_number: int, burst_n_lines: int, swath_gcps: Iterable[utils.GeoControlPoint]
+) -> Iterable[utils.GeoControlPoint]:
+    """Format geolocation control points for a burst by making line numbers
+    relative to the burst, and removing any GCPs that are outside of the burst.
+
+    Args:
+        burst_number: zero-indexed burst number
+        burst_n_lines: number of lines in the burst
+        swath_gcps: list of geolocation control points for the entire swath
+
+    Returns:
+        List of geolocation control points for a particular burst
+    """
+    gcps = []
+    burst_starting_line = burst_number * burst_n_lines
+    for gcp in swath_gcps:
+        gcps.append(utils.GeoControlPoint(gcp.pixel, gcp.line - burst_starting_line, gcp.lon, gcp.lat))
+    relevant_gcps = [gcp for gcp in gcps if 0 <= gcp.line <= burst_n_lines]
+    return relevant_gcps
+
+
 def get_burst_annotation_data(zipped_safe_path: str, swath_path: str) -> Iterable:
     """Obtain the information needed to extract a burst that is contained within
     a SAFE annotation XML.
@@ -103,7 +145,9 @@ def get_burst_annotation_data(zipped_safe_path: str, swath_path: str) -> Iterabl
     burst_lengths = burst_starts[1] - burst_starts[0]
     burst_offsets = [utils.Offset(x, x + burst_lengths) for x in burst_starts]
     burst_windows = [compute_valid_window(i, burst_xml) for i, burst_xml in enumerate(burst_xmls)]
-    return burst_shape, burst_offsets, burst_windows
+    swath_gcps = get_gcps_from_xml(xml)
+    burst_gcps = [format_gcps_for_burst(i, n_lines, swath_gcps) for i in range(len(burst_xmls))]
+    return burst_shape, burst_offsets, burst_windows, burst_gcps
 
 
 def create_xml_metadata(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> utils.XmlMetadata:
@@ -139,15 +183,6 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
     return '_'.join(all_parts) + '.tiff'
 
 
-def get_gcps(zipped_safe_path: str, zip_member_path: str):
-    vsi_path = f'/vsizip/{zipped_safe_path.name}/{zip_member_path}'
-    dataset = gdal.Open(vsi_path)
-    gcps = dataset.GetGCPs()
-
-    dataset = None
-    return gcps
-
-
 def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: bool = True) -> Union[dict, bytes]:
     """Create a burst-specific index containing information needed to download burst tiff from compressed
     SAFE file directly, and remove invalid data.
@@ -162,13 +197,12 @@ def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: boo
     """
     slc_name = Path(zipped_safe_path).with_suffix('').name
     tiff_name = Path(zinfo.filename).name
-    burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
-    tiff_gcps = get_gcps(zipped_safe_path, zinfo.filename)
+    burst_shape, burst_offsets, burst_windows, burst_gcps = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
 
     bursts = {}
     indexer = utils.ZipIndexer(zipped_safe_path, tiff_name)
     indexer.create_full_dflidx()
-    for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
+    for i, (burst_offset, burst_window, burst_gcp) in enumerate(zip(burst_offsets, burst_windows, burst_gcps)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
 
         compressed_offset, uncompressed_offset, modified_index = indexer.subset_dflidx(
@@ -181,7 +215,7 @@ def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: boo
         )
 
         burst = utils.BurstMetadata(
-            burst_name, slc_name, burst_shape, compressed_offset, index_burst_offset, burst_window
+            burst_name, slc_name, burst_shape, compressed_offset, index_burst_offset, burst_window, burst_gcp
         )
 
         if output_json:
