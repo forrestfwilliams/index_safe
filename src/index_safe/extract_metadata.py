@@ -149,16 +149,52 @@ def combine_xml_metadata_files(results_dict: dict, output_name='transformed.xml'
     [path.unlink() for path in metadata_paths + [manifest_path]]
 
 
-def extract_metadata(json_file_path: str, strategy='s3'):
+def select_and_reorder_metadatas(
+    metadatas: Iterable[utils.XmlMetadata], polarization: str
+) -> Iterable[utils.XmlMetadata]:
+    """Select correct polarization, then reorder XmlMetadata objects swath, then by product, noise, calibration.
+
+    Args:
+        metadatas: list of XmlMetadata objects
+        polarization: polarization to select (vv | vh | hv | hh)
+
+    Returns:
+        list of sorted XmlMetadata objects
+    """
+    polarization = polarization.lower()
+    manifest = [metadata for metadata in metadatas if 'manifest' in metadata.name][0]
+    products = []
+    noises = []
+    calibrations = []
+    for metadata in metadatas:
+        if metadata.name.startswith('s1') and metadata.name.split('-')[3] == polarization:
+            products.append(metadata)
+        elif metadata.name.startswith('noise') and metadata.name.split('-')[4] == polarization:
+            noises.append(metadata)
+        elif metadata.name.startswith('calibration') and metadata.name.split('-')[4] == polarization:
+            calibrations.append(metadata)
+
+    products = sorted(products, key=lambda x: x.name.split('-')[1])
+    noises = sorted(noises, key=lambda x: x.name.split('-')[2])
+    calibrations = sorted(calibrations, key=lambda x: x.name.split('-')[2])
+
+    metadatas = [item for sublist in zip(products, noises, calibrations) for item in sublist]
+    metadatas.append(manifest)
+    return metadatas
+
+
+def extract_metadata(json_file_path: str, polarization: str, strategy='s3'):
     """Extract all xml metadata files from SLC in ASF archive
     using offset information.
 
     Args:
         json_file_path: path to json file containing extraction metadata
+        polarization: polarization to extract (vv | vh | hv | hh)
         strategy: strategy to use for download (s3 | http) s3 only
             works if runnning from us-west-2 region
     """
     metadatas = json_to_metadata_entries(json_file_path)
+    metadatas = select_and_reorder_metadatas(metadatas, polarization)
     slc_name = metadatas[0].slc
     url = utils.get_download_url(slc_name)
     offsets = [metadata.offset for metadata in metadatas]
@@ -189,9 +225,10 @@ def main():
     """
     parser = ArgumentParser()
     parser.add_argument('metadata_path')
+    parser.add_argument('--polarization', default='vv')
     args = parser.parse_args()
 
-    extract_metadata(args.metadata_path)
+    extract_metadata(args.metadata_path, args.polarization)
 
 
 if __name__ == '__main__':
