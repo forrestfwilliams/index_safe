@@ -10,7 +10,7 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.0.1]
 
 ### Added
-* Initial version of project (with no changes) to merge a non-zero version into main
+* Initial version of project (with no changes), to merge a non-zero version into main
 
 ## [0.0.0]
 
