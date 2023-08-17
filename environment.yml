@@ -1,15 +1,18 @@
-name: bursts
+name: index_safe
 channels:
   - conda-forge
   - nodefaults
 dependencies:
   - python>=3.8
+  - pip
   - gdal
   - boto3
-  - indexed_gzip
-  - python_isal
   - tqdm
   - numpy
-  - pandas
+  - requests
   # For packaging, and testing
   - pytest
+  - pipreqs
+  - pip:
+    - zran
+

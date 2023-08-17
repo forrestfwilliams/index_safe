@@ -1,52 +1,24 @@
-import io
 import json
+import math
 import os
 import struct
-import tempfile
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from gzip import _create_simple_gzip_header
 from pathlib import Path
 from typing import Iterable
 
 import boto3
-import indexed_gzip as igzip
-import numpy as np
+import botocore
 import requests
+import zran
 from tqdm import tqdm
+
 
 KB = 1024
 MB = 1024 * KB
 SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
-
-
-def get_tmp_access_keys(path):
-    token = os.environ['EDL_TOKEN']
-    resp = requests.get(
-        'https://sentinel1.asf.alaska.edu/s3credentials',
-        headers={'Authorization': f'Bearer {token}'},
-    )
-    resp.raise_for_status()
-    path.write_bytes(resp.content)
-    return resp.json()
-
-
-def get_credentials():
-    credential_file = Path('credentials.json')
-    if not credential_file.exists():
-        credentials = get_tmp_access_keys(credential_file)
-        return credentials
-
-    credentials = json.loads(credential_file.read_text())
-    expiration_time = datetime.fromisoformat(credentials['expiration'])
-    current_time = datetime.now(timezone.utc)
-
-    if current_time >= expiration_time:
-        credentials = get_tmp_access_keys(credential_file)
-
-    return credentials
 
 
 # TODO can also be np.array
@@ -59,8 +31,8 @@ class Offset:
 @dataclass(frozen=True)
 class Window:
     xstart: int
-    ystart: int
     xend: int
+    ystart: int
     yend: int
 
 
@@ -90,6 +62,42 @@ class BurstMetadata:
         )
         return tuppled
 
+    def to_bytes(self):
+        data = (
+            self.shape[0],
+            self.shape[1],
+            self.index_offset.start,
+            self.index_offset.stop,
+            self.uncompressed_offset.start,
+            self.uncompressed_offset.stop,
+            self.valid_window.xstart,
+            self.valid_window.xend,
+            self.valid_window.ystart,
+            self.valid_window.yend,
+        )
+        byte_metadata = b'BURST' + struct.pack('<QQQQQQQQQQ', *data)
+        return byte_metadata
+
+    def to_dict(self):
+        dictionary = {
+            'name': self.name,
+            'slc': self.slc,
+            'n_rows': int(self.shape[0]),
+            'n_columns': int(self.shape[1]),
+            'index_offset': {'start': int(self.index_offset.start), 'stop': int(self.index_offset.stop)},
+            'uncompressed_offset': {
+                'start': int(self.uncompressed_offset.start),
+                'stop': int(self.uncompressed_offset.stop),
+            },
+            'valid_window': {
+                'xstart': int(self.valid_window.xstart),
+                'xend': int(self.valid_window.xend),
+                'ystart': int(self.valid_window.ystart),
+                'yend': int(self.valid_window.yend),
+            },
+        }
+        return dictionary
+
 
 @dataclass(frozen=True)
 class XmlMetadata:
@@ -100,37 +108,173 @@ class XmlMetadata:
     def to_tuple(self):
         return (self.name, self.slc, self.offset.start, self.offset.stop)
 
-
-def get_closest_index(array, value, less_than=True):
-    if less_than:
-        valid_options = array[array <= value]
-    else:
-        valid_options = array[array >= value]
-    closest_number = valid_options[np.abs(valid_options - value).argmin()]
-    closest_index = int(np.argwhere(array == closest_number))
-    return closest_index
+    def to_dict(self):
+        return {self.slc: {self.name: {'offset_start': self.offset.start, 'offset_stop': self.offset.stop}}}
 
 
-def wrap_deflate_as_gz(payload: bytes, zinfo: zipfile.ZipInfo) -> bytes:
-    """Add a GZIP-style header and footer to a raw DEFLATE byte
-    object based on information from a ZipInfo object.
+def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> list[str]:
+    """Calculate range parameters for HTTP range requests.
+    Useful when downloading large files in chunks.
 
     Args:
-        payload: raw DEFLATE bytes (no header or footer)
-        zinfo: the ZipInfo object associated with the payload
+        total_size: total size of request
+        offset: offset to start request
+        chunk_size: size of each chunk
 
     Returns:
-        {10-byte header}DEFLATE_PAYLOAD{CRC}{filesize % 2**32}
+        list of range parameters
     """
-    header = _create_simple_gzip_header(1)
-    trailer = struct.pack("<LL", zinfo.CRC, (zinfo.file_size & 0xFFFFFFFF))
-    gz_wrapped = header + payload + trailer
-    return gz_wrapped
+    num_parts = int(math.ceil(total_size / float(chunk_size)))
+    range_params = []
+    for part_index in range(num_parts):
+        start_range = (part_index * chunk_size) + offset
+        if part_index == num_parts - 1:
+            end_range = str(total_size + offset - 1)
+        else:
+            end_range = start_range + chunk_size - 1
+
+        range_params.append(f'bytes={start_range}-{end_range}')
+    return range_params
+
+
+def get_tmp_access_keys(save_path: Path = Path('./credentials.json'), edl_token: str = None) -> dict:
+    """Get temporary AWS access keys for direct
+    access to ASF data in S3.
+
+    Args:
+        save_path: path to save credentials to
+
+    Returns:
+        dictionary of credentials
+    """
+    if not edl_token:
+        edl_token = os.environ['EDL_TOKEN']
+    resp = requests.get(
+        'https://sentinel1.asf.alaska.edu/s3credentials',
+        headers={'Authorization': f'Bearer {edl_token}'},
+    )
+    resp.raise_for_status()
+    save_path.write_bytes(resp.content)
+    return resp.json()
+
+
+def get_credentials(edl_token: str = None, working_dir=Path('.')) -> dict:
+    """Gets temporary ASF AWS credentials from
+    file or request new credentials if credentials
+    are not present or expired.
+
+    Returns:
+        dictionary of credentials
+    """
+    credential_file = working_dir / 'credentials.json'
+    if not credential_file.exists():
+        credentials = get_tmp_access_keys(credential_file, edl_token)
+        return credentials
+
+    credentials = json.loads(credential_file.read_text())
+    expiration_time = datetime.fromisoformat(credentials['expiration'])
+    current_time = datetime.now(timezone.utc)
+
+    if current_time >= expiration_time:
+        credentials = get_tmp_access_keys(credential_file, edl_token)
+
+    return credentials
+
+
+def lambda_get_credentials(edl_token, working_dir, client, bucket, key):
+    """Gets temporary ASF AWS credentials for a lambda function.
+    Checks if credentials exist in S3 and are not expired. If neither are true,
+    a new version of the credentials is uploaded to S3.
+
+    Args:
+        edl_token: EDL token
+        working_dir: working directory
+        client: boto3 client
+        bucket: S3 bucket
+        key: S3 key
+    """
+    credential_file = working_dir / 'credentials.json'
+    credentials_need_update = False
+
+    try:
+        client.download_file(bucket, key, credential_file)
+    except botocore.exceptions.ClientError:
+        print('The credentials do not exist, will create.')
+        credentials_need_update = True
+        get_tmp_access_keys(credential_file, edl_token)
+
+    credentials = json.loads(credential_file.read_text())
+    expiration_time = datetime.fromisoformat(credentials['expiration'])
+    current_time = datetime.now(timezone.utc)
+
+    if current_time >= expiration_time:
+        credentials_need_update = True
+        get_tmp_access_keys(credential_file, edl_token)
+
+    if credentials_need_update:
+        client.upload_file(credential_file, bucket, key)
+
+
+def get_download_url(scene: str) -> str:
+    """Get download url for Sentinel-1 scene.
+
+    Args:
+        scene: scene name
+
+    Returns:
+        Scene url
+    """
+    mission = scene[0] + scene[2]
+    product_type = scene[7:10]
+    if product_type == 'GRD':
+        product_type += '_' + scene[10] + scene[14]
+    url = f'{SENTINEL_DISTRIBUTION_URL}/{product_type}/{mission}/{scene}.zip'
+    return url
+
+
+def download_slc(scene: str, edl_token: str = None, working_dir=Path('.'), strategy='s3') -> str:
+    """Download an SLC zip file from ASF.
+
+    Args:
+        scene: SLC name (no exstension)
+        strategy: strategy to use for download (s3 | http)
+            s3 only works if runnning from us-west-2 region
+    """
+    zip_name = f'{scene}.zip'
+    url = get_download_url(scene)
+
+    if strategy == 's3':
+        creds = get_credentials(edl_token, working_dir)
+        client = boto3.client(
+            "s3",
+            aws_access_key_id=creds["accessKeyId"],
+            aws_secret_access_key=creds["secretAccessKey"],
+            aws_session_token=creds["sessionToken"],
+        )
+
+        metadata = client.head_object(Bucket=BUCKET, Key=zip_name)
+        total_length = int(metadata.get('ContentLength', 0))
+        with tqdm(total=total_length, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
+            with open(working_dir / zip_name, 'wb') as f:
+                client.download_fileobj(BUCKET, zip_name, f, Callback=pbar.update)
+
+    elif strategy == 'http':
+        session = requests.Session()
+        with session.get(url, stream=True) as s:
+            s.raise_for_status()
+            total = int(s.headers.get('content-length', 0))
+            with open(zip_name, "wb") as f:
+                with tqdm(unit='B', unit_scale=True, unit_divisor=1024, total=total) as pbar:
+                    for chunk in s.iter_content(chunk_size=10 * MB):
+                        if chunk:
+                            f.write(chunk)
+                            pbar.update(len(chunk))
+        session.close()
 
 
 def get_zip_compressed_offset(zip_path: str, zinfo: zipfile.ZipInfo) -> Offset:
-    """Get the byte offset (beginning byte and end byte inclusive)
-    for a member of a zip archive.
+    """Get the byte offset (beginning byte and end byte inclusive) for a member
+    of a zip archive.
 
     Args:
         zip_path: path to zip file on disk
@@ -151,155 +295,45 @@ def get_zip_compressed_offset(zip_path: str, zinfo: zipfile.ZipInfo) -> Offset:
     return Offset(data_start, data_stop)
 
 
-def parse_gzidx(gzidx: bytes) -> Iterable:
-    compressed_size, uncompressed_size, point_spacing, window_size, n_points = struct.unpack('<QQIII', gzidx[7:35])
-    raw_points = gzidx[35 : 35 + n_points * 18]
-    points = np.array([struct.unpack('<QQBB', raw_points[18 * i : 18 * (i + 1)]) for i in range(n_points)])
-    return points, compressed_size, uncompressed_size, window_size, n_points
-
-
 class ZipIndexer:
-    """Class for creating gzidx indexes for zip archive members
-    that are compatible with the indexed_gzip library
+    """Class for creating dflidx indexes for zip archive members
+    that are compatible with the zran library.
     """
 
     def __init__(self, zip_path: str, member_name: str, spacing: int = 2**20):
         self.zip_path = zip_path
-        self.archive_size = Path(self.zip_path).stat().st_size
-        self.gz_header_length = 10
         self.spacing = spacing
-        self.gzidx_header_length = 35
-        self.gzidx_point_length = 18
-        self.base_gzidx, self.member_offset = self.create_base_gzidx(member_name)
+        self.member_name = member_name
+        self.index = None
 
-    def create_base_gzidx(self, member_name: str) -> Iterable:
+    def create_full_dflidx(self):
         with zipfile.ZipFile(self.zip_path) as f:
-            zinfo = [x for x in f.infolist() if member_name in x.filename][0]
+            zinfo = [x for x in f.infolist() if self.member_name in x.filename][0]
 
-        offset = get_zip_compressed_offset(self.zip_path, zinfo)
+        self.file_offset = get_zip_compressed_offset(self.zip_path, zinfo)
         with open(self.zip_path, 'rb') as f:
-            f.seek(offset.start)
-            body = f.read(offset.stop - offset.start)
-        gz_body = wrap_deflate_as_gz(body, zinfo)
+            f.seek(self.file_offset.start)
+            self.body = f.read(self.file_offset.stop - self.file_offset.start)
 
-        with tempfile.NamedTemporaryFile() as tmp_gzidx:
-            with igzip.IndexedGzipFile(io.BytesIO(gz_body), spacing=self.spacing) as f:
-                f.build_full_index()
-                f.export_index(tmp_gzidx.name)
+        self.index = zran.Index.create_index(self.body, span=self.spacing)
 
-            with open(tmp_gzidx.name, 'rb') as f:
-                base_gzidx = f.read()
+    def subset_dflidx(self, locations: Iterable[int], end_location: int) -> Iterable:
+        """Build base DFLIDX index for a Zip member file that has
+        been compresed using zlib (DEFLATE).
 
-        return base_gzidx, offset
+        Args:
+            locations: A list of uncompressed locations to be included in the new index.
+                       The closes point before each location will be selected.
+            end_location: The uncompressed endpoint of the index. Used to determine file size.
 
-    def build_gzidx(
-        self, gzidx_path: str, starts: Iterable[int] = [], stops: Iterable[int] = [], relative: bool = False
-    ) -> str:
-        point_array, _, _, window_size, n_points = parse_gzidx(self.base_gzidx)
-
-        # FIXME Assume only first window entry is zero
-        length_to_window = self.gzidx_header_length + (self.gzidx_point_length * n_points)
-        window_offsets = np.arange(0, point_array[1:].shape[0] * window_size, window_size) + length_to_window
-        window_offsets = np.append([0], window_offsets, axis=0)
-
-        point_array = np.append(point_array, np.expand_dims(window_offsets, axis=1), axis=1)
-        if starts or stops:
-            start_indexes = [get_closest_index(point_array[:, 1], x) for x in starts]
-            stop_indexes = [get_closest_index(point_array[:, 1], x, less_than=False) for x in stops]
-
-            if 0 not in start_indexes:
-                start_indexes.append(min(start_indexes) - 1)
-
-            point_array = point_array[sorted(start_indexes + stop_indexes), :].copy()
-
-        if relative:
-            data_start = point_array[0, 0] - self.gz_header_length + self.member_offset.start
-            data_stop = point_array[-1, 0] - self.gz_header_length + self.member_offset.start
-            self.index_offset = Offset(data_start, data_stop)
-
-            point_array[:, 0] -= point_array[0, 0] - self.gz_header_length
-            filesize_bytes = struct.pack('<Q', max(point_array[:, 0]))
-        else:
-            filesize_bytes = struct.pack('<Q', self.archive_size)
-            self.index_offset = Offset(0, self.archive_size)
-            point_array[:, 0] += self.member_offset.start - self.gz_header_length
-
-        point_bytes = []
-        window_bytes = []
-        for row in point_array:
-            point_entry = struct.pack('<QQBB', *row[:4].tolist())
-
-            if row[4] == 0:
-                window_entry = b''
-            else:
-                window_entry = self.base_gzidx[row[4] : row[4] + window_size]
-
-            point_bytes.append(point_entry)
-            window_bytes.append(window_entry)
-
-        header = self.base_gzidx[:7] + filesize_bytes + self.base_gzidx[15:31] + struct.pack('<I', point_array.shape[0])
-        altered_gzidx = header + b''.join(point_bytes) + b''.join(window_bytes)
-
-        with open(gzidx_path, 'wb') as fobj:
-            fobj.write(altered_gzidx)
-        return gzidx_path
-
-
-def get_download_url(scene: str) -> str:
-    """Get download url for Sentinel-1 Scene
-
-    Args:
-        scene: scene name
-    Returns:
-        Scene url
-    """
-    mission = scene[0] + scene[2]
-    product_type = scene[7:10]
-    if product_type == 'GRD':
-        product_type += '_' + scene[10] + scene[14]
-    url = f'{SENTINEL_DISTRIBUTION_URL}/{product_type}/{mission}/{scene}.zip'
-    return url
-
-
-def download_slc(scene: str, strategy='s3') -> str:
-    """Download a file
-
-    Args:
-        url: URL of the file to download
-        directory: Directory location to place files into
-        chunk_size: Size to chunk the download into
-    Returns:
-        download_path: The path to the downloaded file
-    """
-    zip_name = f'{scene}.zip'
-    url = get_download_url(scene)
-
-    if strategy == 's3':
-        creds = get_credentials()
-        client = boto3.client(
-            "s3",
-            aws_access_key_id=creds["accessKeyId"],
-            aws_secret_access_key=creds["secretAccessKey"],
-            aws_session_token=creds["sessionToken"],
+        Returns:
+            bytes of dflidx, and compressed range of member in zip archive
+        """
+        compressed_offset, uncompressed_offset, modified_index = self.index.create_modified_index(
+            locations, end_location
         )
-
-        metadata = client.head_object(Bucket=BUCKET, Key=zip_name)
-        total_length = int(metadata.get('ContentLength', 0))
-        with tqdm(total=total_length, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
-            with open(zip_name, 'wb') as f:
-                client.download_fileobj(BUCKET, zip_name, f, Callback=pbar.update)
-
-    elif strategy == 'http':
-        session = requests.Session()
-        with session.get(url, stream=True) as s:
-            s.raise_for_status()
-            total = int(s.headers.get('content-length', 0))
-            with open(zip_name, "wb") as f:
-                with tqdm(unit='B', unit_scale=True, unit_divisor=1024, total=total) as pbar:
-                    for chunk in s.iter_content(chunk_size=10 * MB):
-                        if chunk:
-                            f.write(chunk)
-                            pbar.update(len(chunk))
-        session.close()
-
-    return scene
+        compressed_offset = Offset(
+            compressed_offset[0] + self.file_offset.start, compressed_offset[1] + self.file_offset.start
+        )
+        uncompressed_offset = Offset(uncompressed_offset[0], uncompressed_offset[1])
+        return compressed_offset, uncompressed_offset, modified_index

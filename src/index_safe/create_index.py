@@ -1,17 +1,24 @@
+import base64
 import io
+import json
 import os
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from argparse import ArgumentParser
-from itertools import chain
+from collections import ChainMap
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Union
 
+import boto3
 import numpy as np
-import pandas as pd
 from tqdm import tqdm
 
-from . import utils
+
+try:
+    from index_safe import utils
+except ModuleNotFoundError:
+    import utils
 
 
 def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:
@@ -56,8 +63,8 @@ def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:
 
     valid_window = utils.Window(
         valid_offsets_range.start,
-        valid_offsets_azimuth.start,
         valid_offsets_range.start + length_range,
+        valid_offsets_azimuth.start,
         valid_offsets_azimuth.start + length_azimuth,
     )
 
@@ -114,7 +121,7 @@ def create_xml_metadata(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> utils.
 
 
 def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
-    """Create name for a burst tiff
+    """Create name for a burst tiff.
 
     Args:
         slc_name: Name of SLC
@@ -129,129 +136,82 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
     return '_'.join(all_parts) + '.tiff'
 
 
-def create_gzidx_name(slc_name: str, swath_name: str) -> str:
-    """Create name for a swath index file
-
-    Args:
-        slc_name: Name of SLC
-        swath_name: Name of swath
-        burst_index: Zero-indexed burst number in swath
-
-    Returns:
-        Name of swath index
-    """
-    _, swath, _, polarization, *_ = swath_name.split('-')
-    all_parts = [slc_name, swath.upper(), polarization.upper()]
-    return '_'.join(all_parts) + '.gzidx'
-
-
-def create_index_by_burst(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
-    """Create objects containing information needed to download burst tiff from compressed file directly,
-    and remove invalid data, for a swath tiff.
+def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: bool = True) -> Union[dict, bytes]:
+    """Create a burst-specificindex containing information needed to download burst tiff from compressed
+    SAFE file directly, and remove invalid data.
 
     Args:
         zipped_safe_path: Path to zipped SAFE
         zinfo: ZipInfo object for desired XML
+        output_json: Whether to output index as json or bytes
 
     Returns:
-        BurstMetadata objects containing information needed to download and remove invalid data
+        dictionary or bytes object containing information needed to download and remove invalid data
     """
     slc_name = Path(zipped_safe_path).with_suffix('').name
     tiff_name = Path(zinfo.filename).name
     burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
 
-    bursts = []
+    bursts = {}
     indexer = utils.ZipIndexer(zipped_safe_path, tiff_name)
+    indexer.create_full_dflidx()
     for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
         burst_name = create_burst_name(slc_name, zinfo.filename, i)
-        gzidx_name = Path(burst_name).with_suffix('.gzidx').name
-        indexer.build_gzidx(gzidx_name, starts=[burst_offset.start], stops=[burst_offset.stop], relative=True)
-        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, indexer.index_offset, burst_offset, burst_window)
-        bursts.append(burst)
+
+        compressed_offset, uncompressed_offset, modified_index = indexer.subset_dflidx(
+            locations=[burst_offset.start], end_location=burst_offset.stop
+        )
+        dflidx = modified_index.create_index_file()
+
+        index_burst_offset = utils.Offset(
+            burst_offset.start - uncompressed_offset.start, burst_offset.stop - uncompressed_offset.start
+        )
+
+        burst = utils.BurstMetadata(
+            burst_name, slc_name, burst_shape, compressed_offset, index_burst_offset, burst_window
+        )
+
+        if output_json:
+            bstidx_name = Path(burst_name).with_suffix('.json').name
+            burst_dictionary = burst.to_dict()
+            burst_dictionary['dflidx_b64'] = base64.b64encode(dflidx).decode('utf-8')
+            bursts[bstidx_name] = burst_dictionary
+        else:
+            bstidx_name = Path(burst_name).with_suffix('.bstidx').name
+            bursts[bstidx_name] = burst.to_bytes() + dflidx
     return bursts
 
 
-def create_index_by_swath(zipped_safe_path: str, zinfo: zipfile.ZipInfo) -> Iterable[utils.BurstMetadata]:
-    """Create objects containing information needed to download burst tiff from compressed file directly,
-    and remove invalid data, for a swath tiff.
-
-    Args:
-        zipped_safe_path: Path to zipped SAFE
-        zinfo: ZipInfo object for desired XML
-
-    Returns:
-        BurstMetadata objects containing information needed to download and remove invalid data
-    """
-    slc_name = Path(zipped_safe_path).with_suffix('').name
-    tiff_name = Path(zinfo.filename).name
-    gzidx_name = create_gzidx_name(slc_name, tiff_name)
-
-    burst_shape, burst_offsets, burst_windows = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
-
-    indexer = utils.ZipIndexer(zipped_safe_path, Path(zinfo.filename).name)
-    indexer.build_gzidx(gzidx_name, starts=[x.start for x in burst_offsets], stops=[x.stop for x in burst_offsets])
-
-    bursts = []
-    for i, (burst_offset, burst_window) in enumerate(zip(burst_offsets, burst_windows)):
-        burst_name = create_burst_name(slc_name, zinfo.filename, i)
-        burst = utils.BurstMetadata(burst_name, slc_name, burst_shape, indexer.index_offset, burst_offset, burst_window)
-        bursts.append(burst)
-    return bursts
-
-
-def save_as_csv(entries: Iterable[utils.XmlMetadata | utils.BurstMetadata], out_name: str) -> str:
-    """Save a list of metadata objects as a csv.
+def save_xml_metadata_as_json(entries: Iterable[utils.XmlMetadata], out_name: str) -> str:
+    """Save a list of XmlMetadata objects as a json.
 
     Args:
         entries: List of metadata objects to be included
-        out_name: Path/name to save csv at
+        out_name: Path/name to save json at
 
     Returns:
-        Path/name where csv was saved
+        Path/name where json was saved
     """
-    if isinstance(entries[0], utils.XmlMetadata):
-        columns = ['name', 'slc', 'offset_start', 'offset_stop']
-    else:
-        columns = [
-            'name',
-            'slc',
-            'n_rows',
-            'n_columns',
-            'index_start',
-            'index_stop',
-            'offset_start',
-            'offset_stop',
-            'valid_x_start',
-            'valid_x_stop',
-            'valid_y_start',
-            'valid_y_stop',
-        ]
+    slc = entries[0].slc
+    metadata_dicts = [entry.to_dict()[slc] for entry in entries]
+    combined_dict = {}
+    for metadata_dict in metadata_dicts:
+        combined_dict.update(metadata_dict)
 
-    df = pd.DataFrame([x.to_tuple() for x in entries], columns=columns)
-    df.to_csv(out_name, index=False)
+    with open(out_name, 'w') as json_file:
+        json.dump({slc: combined_dict}, json_file)
     return out_name
 
 
-def index_safe(slc_name: str, by_burst: bool = True, keep: bool = True):
-    """Create the index and other metadata needed to directly download
-    and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
-    this information in csv files.
+def get_indexes(zipped_safe_path: Path):
+    """Get indexes for XML and bursts in zipped SAFE.
 
     Args:
-        slc_name: Scene name to index
-        keep: If False, delete SLC zip after indexing
+        zipped_safe_path: Path to zipped SAFE
 
-    Returns:
-        No function outputs, but saves a metadata.csv and burst.csv to
-        the working directory
+    Returns: tuple of lists of XmlMetadata and BurstMetadata objects
+
     """
-    zipped_safe_path = f'{slc_name}.zip'
-    if not Path(zipped_safe_path).exists():
-        print('Downloading SLC...')
-        utils.download_slc(slc_name)
-    else:
-        print('SLC exists locally, skipping download')
-
     with zipfile.ZipFile(zipped_safe_path) as f:
         tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
         xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
@@ -259,17 +219,64 @@ def index_safe(slc_name: str, by_burst: bool = True, keep: bool = True):
 
     print('Reading XMLs...')
     xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
-    save_as_csv(xml_metadatas, 'metadata.csv')
 
     print('Reading Bursts...')
-    if by_burst:
-        burst_metadatas = list(chain(*[create_index_by_burst(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    return xml_metadatas, burst_metadatas
+
+
+def index_safe(slc_name: str, edl_token: str = None, working_dir='.', output_json: bool = True, keep: bool = True):
+    """Create the index and other metadata needed to directly download
+    and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
+    this information in json files. All information for extracting a burst is included in
+    the index file.
+
+    Args:
+        slc_name: Scene name to index
+        edl_token: token for earth data login access
+        working_dir: Directory to save metadata and index files
+        output_json: Whether to output index as json or bytes
+        keep: If False, delete SLC zip after indexing
+
+    Returns:
+        No function outputs, but saves a metadata.json, burst indexes to file
+    """
+    absolute_dir = Path(working_dir).resolve()
+    zipped_safe_path = absolute_dir / f'{slc_name}.zip'
+    if not zipped_safe_path.exists():
+        print('Downloading SLC...')
+        utils.download_slc(slc_name, edl_token, working_dir=absolute_dir)
     else:
-        burst_metadatas = list(chain(*[create_index_by_swath(zipped_safe_path, x) for x in tqdm(tiffs)]))
-    save_as_csv(burst_metadatas, 'bursts.csv')
+        print('SLC exists locally, skipping download')
+
+    xml_metadatas, burst_metadatas = get_indexes(zipped_safe_path)
+
+    save_xml_metadata_as_json(xml_metadatas, str(absolute_dir / f'{slc_name}_metadata.json'))
+
+    if output_json:
+        for key, value in burst_metadatas.items():
+            with open(key, 'w') as json_file:
+                json.dump(value, json_file)
+    else:
+        [(absolute_dir / key).write_bytes(value) for key, value in burst_metadatas.items()]
 
     if not keep:
         os.remove(zipped_safe_path)
+
+
+def lambda_handler(event, context):
+    print('## ENVIRONMENT VARIABLES')
+    print(os.environ)
+    print('## EVENT')
+    print(event)
+    print('## PROCESS BEGIN...')
+    s3 = boto3.client('s3')
+    bucket_name = os.environ.get('IndexBucketName')
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        index_safe(event['scene'], event['edl_token'], working_dir=tmpdirname)
+        indexes = Path(tmpdirname).glob('*.bstidx')
+        [s3.upload_file(str(x), bucket_name, x.name) for x in indexes]
+    print('## PROCESS COMPLETE!')
 
 
 def main():
