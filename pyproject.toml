@@ -46,6 +46,11 @@ Homepage = "https://github.com/forrestfwilliams/indexed_safe"
 include-package-data = true
 zip-safe = false
 
+[tool.black]
+line-length = 120
+skip-string-normalization = true
+include = '\.pyx?$'
+
 [tool.ruff]
 line-length = 120
 

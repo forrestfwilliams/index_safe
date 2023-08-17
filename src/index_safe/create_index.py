@@ -232,7 +232,7 @@ def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: boo
     return bursts
 
 
-def save_xml_metadata_as_json(entries: utils.XmlMetadata, out_name: str) -> str:
+def save_xml_metadata_as_json(entries: Iterable[utils.XmlMetadata], out_name: str) -> str:
     """Save a list of XmlMetadata objects as a json.
 
     Args:
@@ -251,6 +251,28 @@ def save_xml_metadata_as_json(entries: utils.XmlMetadata, out_name: str) -> str:
     with open(out_name, 'w') as json_file:
         json.dump({slc: combined_dict}, json_file)
     return out_name
+
+
+def get_indexes(zipped_safe_path: Path):
+    """Get indexes for XML and bursts in zipped SAFE.
+
+    Args:
+        zipped_safe_path: Path to zipped SAFE
+
+    Returns: tuple of lists of XmlMetadata and BurstMetadata objects
+
+    """
+    with zipfile.ZipFile(zipped_safe_path) as f:
+        tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
+        xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
+        xmls += [x for x in f.infolist() if 'manifest.safe' == Path(x.filename).name]
+
+    print('Reading XMLs...')
+    xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
+
+    print('Reading Bursts...')
+    burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    return xml_metadatas, burst_metadatas
 
 
 def index_safe(slc_name: str, edl_token: str = None, working_dir='.', output_json: bool = True, keep: bool = True):
@@ -277,17 +299,9 @@ def index_safe(slc_name: str, edl_token: str = None, working_dir='.', output_jso
     else:
         print('SLC exists locally, skipping download')
 
-    with zipfile.ZipFile(zipped_safe_path) as f:
-        tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
-        xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
-        xmls += [x for x in f.infolist() if 'manifest.safe' == Path(x.filename).name]
+    xml_metadatas, burst_metadatas = get_indexes(zipped_safe_path)
 
-    print('Reading XMLs...')
-    xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
-    save_xml_metadata_as_json(xml_metadatas, absolute_dir / f'{slc_name}_metadata.json')
-
-    print('Reading Bursts...')
-    burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    save_xml_metadata_as_json(xml_metadatas, str(absolute_dir / f'{slc_name}_metadata.json'))
 
     if output_json:
         for key, value in burst_metadatas.items():

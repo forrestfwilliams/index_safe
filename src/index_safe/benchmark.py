@@ -25,7 +25,7 @@ def download_requests(url, offset, length):
 
 
 def download_fsspec(url, offset, length):
-    base_fs = fsspec.filesystem('https', block_size = 5 * (2**20))
+    base_fs = fsspec.filesystem('https', block_size=5 * (2**20))
     with base_fs.open(url, 'rb') as f:
         f.seek(offset)
         body = f.read(length)

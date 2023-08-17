@@ -116,22 +116,6 @@ def zinfo():
     return zinfo
 
 
-@pytest.fixture(scope='module')
-def seek_point_array(golden_gz):
-    if not Path(GZIDX_PATH).exists():
-        print('Creating full gzidx')
-        with igzip.IndexedGzipFile(GZ_PATH, spacing=2**22) as f:
-            f.build_full_index()
-            f.export_index(GZIDX_PATH)
-
-    with igzip.IndexedGzipFile(GZ_PATH, spacing=2**22) as f:
-        f.import_index(GZIDX_PATH)
-        seek_points = list(f.seek_points())
-    array = np.array(seek_points)
-
-    return array
-
-
 def test_burst_specific_index(golden_zip):
     # # IW2 VV 3 golden
     # compressed = utils.Offset(start=2589238610, stop=2690292830)
