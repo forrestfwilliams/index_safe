@@ -1,5 +1,4 @@
 import json
-import tempfile
 import zlib
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
