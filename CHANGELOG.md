@@ -7,6 +7,12 @@ and this project adheres to [PEP 440](https://www.python.org/dev/peps/pep-0440/)
 and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.0.2]
+
+### Added
+* Geographic control point information to indexes
+* Insertion of geographic control points into the output burst tiffs
+
 ## [0.0.1]
 
 ### Added

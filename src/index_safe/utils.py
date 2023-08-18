@@ -21,6 +21,15 @@ SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
+@dataclass(frozen=True)
+class GeoControlPoint:
+    pixel: int
+    line: int
+    lon: float
+    lat: float
+    hgt: float
+
+
 # TODO can also be np.array
 @dataclass(frozen=True)
 class Offset:
@@ -44,6 +53,7 @@ class BurstMetadata:
     index_offset: Offset
     uncompressed_offset: Offset
     valid_window: Window
+    gcps: Iterable[GeoControlPoint]
 
     def to_tuple(self):
         tuppled = (
@@ -95,6 +105,16 @@ class BurstMetadata:
                 'ystart': int(self.valid_window.ystart),
                 'yend': int(self.valid_window.yend),
             },
+            'gcps': [
+                {
+                    'pixel': int(gcp.pixel),
+                    'line': int(gcp.line),
+                    'lon': float(gcp.lon),
+                    'lat': float(gcp.lat),
+                    'hgt': float(gcp.hgt),
+                }
+                for gcp in self.gcps
+            ],
         }
         return dictionary
 

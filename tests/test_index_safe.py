@@ -165,7 +165,7 @@ def test_get_zip_compressed_offset(golden_zip, zinfo, golden_bytes):
 
 # Burst level
 def test_get_burst_annotation_data(golden_zip, zinfo):
-    burst_shape, burst_offsets, burst_windows = create_index.get_burst_annotation_data(golden_zip, zinfo.filename)
+    burst_shape, burst_offsets, burst_windows, _ = create_index.get_burst_annotation_data(golden_zip, zinfo.filename)
 
     assert burst_shape == BURST_SHAPE
     assert burst_offsets[7].start == BURST_START
