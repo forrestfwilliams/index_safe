@@ -12,6 +12,7 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 * Geographic control point information to indexes
 * Insertion of geographic control points into the output burst tiffs
+* Add check for deflate compression before indexing
 
 ## [0.0.1]
 
