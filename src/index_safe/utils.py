@@ -49,13 +49,13 @@ class Window:
 class BurstMetadata:
     name: str
     slc: str
+    swath: str
+    burst_index: int
     shape: Iterable[int]  # n_row, n_column
     index_offset: Offset
     uncompressed_offset: Offset
     annotation_offset: Offset
     manifest_offset: Offset
-    valid_window: Window
-    gcps: Iterable[GeoControlPoint]
 
     def to_tuple(self):
         tuppled = (
@@ -94,6 +94,8 @@ class BurstMetadata:
         dictionary = {
             'name': self.name,
             'slc': self.slc,
+            'swath': self.swath,
+            'burst_index': self.burst_index,
             'n_rows': int(self.shape[0]),
             'n_columns': int(self.shape[1]),
             'index_offset': {'start': int(self.index_offset.start), 'stop': int(self.index_offset.stop)},
@@ -109,22 +111,6 @@ class BurstMetadata:
                 'start': int(self.manifest_offset.start),
                 'stop': int(self.manifest_offset.stop),
             },
-            'valid_window': {
-                'xstart': int(self.valid_window.xstart),
-                'xend': int(self.valid_window.xend),
-                'ystart': int(self.valid_window.ystart),
-                'yend': int(self.valid_window.yend),
-            },
-            'gcps': [
-                {
-                    'pixel': int(gcp.pixel),
-                    'line': int(gcp.line),
-                    'lon': float(gcp.lon),
-                    'lat': float(gcp.lat),
-                    'hgt': float(gcp.hgt),
-                }
-                for gcp in self.gcps
-            ],
         }
         return dictionary
 
