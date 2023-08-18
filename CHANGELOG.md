@@ -7,12 +7,16 @@ and this project adheres to [PEP 440](https://www.python.org/dev/peps/pep-0440/)
 and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.0.2]
+## [0.1.0]
 
 ### Added
 * Geographic control point information to indexes
 * Insertion of geographic control points into the output burst tiffs
 * Add check for deflate compression before indexing
+
+### Modified
+* `create_index` and `extract_burst` so that valid window and GCP calculations happen during `extract_burst`
+* `utils.BurstMetadata` so that it contains annotation and manifest offsets, but not valid window or GCP data
 
 ## [0.0.1]
 
