@@ -267,6 +267,15 @@ def get_indexes(zipped_safe_path: Path):
         xmls = [x for x in f.infolist() if 'xml' in Path(x.filename).name]
         xmls += [x for x in f.infolist() if 'manifest.safe' == Path(x.filename).name]
 
+        non_deflate_tiffs = [tiff for tiff in tiffs if tiff.compress_type != zipfile.ZIP_DEFLATED]
+        non_deflate_xmls = [xml for xml in xmls if xml.compress_type != zipfile.ZIP_DEFLATED]
+        non_deflate = non_deflate_tiffs + non_deflate_xmls
+        if non_deflate:
+            raise ValueError(
+                'Non-deflate compressed files found in SAFE.'
+                'All files must be compressed using the deflate method before indexing.'
+            )
+
     print('Reading XMLs...')
     xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
 
