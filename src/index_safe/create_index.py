@@ -186,12 +186,15 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
     return '_'.join(all_parts) + '.tiff'
 
 
-def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: bool = True) -> Union[dict, bytes]:
+def create_index(
+    zipped_safe_path: str, xml_metadatas: Iterable[utils.XmlMetadata], zinfo: zipfile.ZipInfo, output_json: bool = True
+) -> Union[dict, bytes]:
     """Create a burst-specific index containing information needed to download burst tiff from compressed
     SAFE file directly, and remove invalid data.
 
     Args:
         zipped_safe_path: Path to zipped SAFE
+        xml_metadatas: List of XmlMetadata objects for all XML files in SAFE
         zinfo: ZipInfo object for desired XML
         output_json: Whether to output index as json or bytes
 
@@ -200,6 +203,9 @@ def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: boo
     """
     slc_name = Path(zipped_safe_path).with_suffix('').name
     tiff_name = Path(zinfo.filename).name
+    annotation_name = Path(zinfo.filename).with_suffix('.xml').name
+    annotation_offset = [item for item in xml_metadatas if item.name == annotation_name][0].offset
+    manifest_offset = [item for item in xml_metadatas if item.name == 'manifest.safe'][0].offset
     burst_shape, burst_offsets, burst_windows, burst_gcps = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
 
     bursts = {}
@@ -218,7 +224,15 @@ def create_index(zipped_safe_path: str, zinfo: zipfile.ZipInfo, output_json: boo
         )
 
         burst = utils.BurstMetadata(
-            burst_name, slc_name, burst_shape, compressed_offset, index_burst_offset, burst_window, burst_gcp
+            burst_name,
+            slc_name,
+            burst_shape,
+            compressed_offset,
+            index_burst_offset,
+            annotation_offset,
+            manifest_offset,
+            burst_window,
+            burst_gcp,
         )
 
         if output_json:
@@ -280,7 +294,7 @@ def get_indexes(zipped_safe_path: Path):
     xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
 
     print('Reading Bursts...')
-    burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, x) for x in tqdm(tiffs)]))
+    burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, xml_metadatas, x) for x in tqdm(tiffs)]))
     return xml_metadatas, burst_metadatas
 
 

@@ -52,6 +52,8 @@ class BurstMetadata:
     shape: Iterable[int]  # n_row, n_column
     index_offset: Offset
     uncompressed_offset: Offset
+    annotation_offset: Offset
+    manifest_offset: Offset
     valid_window: Window
     gcps: Iterable[GeoControlPoint]
 
@@ -98,6 +100,14 @@ class BurstMetadata:
             'uncompressed_offset': {
                 'start': int(self.uncompressed_offset.start),
                 'stop': int(self.uncompressed_offset.stop),
+            },
+            'annotation_offset': {
+                'start': int(self.annotation_offset.start),
+                'stop': int(self.annotation_offset.stop),
+            },
+            'manifest_offset': {
+                'start': int(self.manifest_offset.start),
+                'stop': int(self.manifest_offset.stop),
             },
             'valid_window': {
                 'xstart': int(self.valid_window.xstart),
