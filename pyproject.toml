@@ -63,12 +63,3 @@ where = ["src"]
 minversion = "6.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
-
-[tool.cibuildwheel]
-build = "cp3{8,9,10,11}-*"
-
-[tool.cibuildwheel.macos]
-archs = ["x86_64", "arm64"]
-
-[tool.cibuildwheel.linux]
-archs = ["x86_64"]
