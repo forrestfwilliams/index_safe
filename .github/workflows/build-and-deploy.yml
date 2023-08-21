@@ -1,4 +1,4 @@
-name: Build and upload to test PyPI
+name: Build and upload to PyPI
 
 on:
   workflow_dispatch:
@@ -9,6 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    - name: Checkout lastest tagged version
+      run: git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -27,8 +31,7 @@ jobs:
         --wheel
         --outdir dist/
         .
-    - name: Publish distribution to Test PyPI
+    - name: Publish distribution to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
-        password: ${{ secrets.PYPI_TEST_PAK }}
-        repository-url: https://test.pypi.org/legacy/
+        password: ${{ secrets.PYPI_PAK }}
