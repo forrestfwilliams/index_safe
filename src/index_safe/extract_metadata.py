@@ -4,13 +4,11 @@ from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional, Union
 
 import boto3
-import botocore
 import lxml.etree
 import requests
-from tqdm import tqdm
 
 
 try:
@@ -23,31 +21,27 @@ MB = 1024 * KB
 MAX_WBITS = 15
 
 
-def extract_bytes(
-    url: str, offset: utils.Offset, client: botocore.client.BaseClient | requests.sessions.Session
+def extract_metadata_xml_bytes(
+    url: str,
+    offset: utils.Offset,
+    client: Union[boto3.client, requests.sessions.Session],
+    range_get_func: Callable,
 ) -> bytes:
-    """Extract bytes pertaining to a metadata xml file from a Sentinel-1 SLC archive using offset
-    information from a XmlMetadata object.
+    """Extract and decompress bytes pertaining to an metadata XML file from a Sentinel-1 SLC archive.
 
     Args:
         url: url location of SLC archive
         offset: offset for compressed data range in zip archive
-        client: client to use for downloading the data (s3 | http) client
+        client: boto3 S3 client or requests session
+        range_get_func: function to use to get a range of bytes from SLC archive
 
     Returns:
         bytes representing metadata xml
     """
-    range_header = f'bytes={offset.start}-{offset.stop - 1}'
-
-    if isinstance(client, botocore.client.BaseClient):
-        resp = client.get_object(Bucket=utils.BUCKET, Key=Path(url).name, Range=range_header)
-        body = resp['Body'].read()
-    elif isinstance(client, requests.sessions.Session):
-        resp = client.get(url, headers={'Range': range_header})
-        body = resp.content
-
-    body = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(body)
-    return body
+    annotation_range = f'bytes={offset.start}-{offset.stop-1}'
+    annotation_bytes = range_get_func(client, url, annotation_range)
+    annotation_xml = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(annotation_bytes)
+    return annotation_xml
 
 
 def json_to_metadata_entries(json_path: str) -> Iterable[utils.XmlMetadata]:
@@ -198,19 +192,9 @@ def extract_metadata(json_file_path: str, polarization: str, strategy='s3'):
     url = utils.get_download_url(slc_name)
     offsets = [metadata.offset for metadata in metadatas]
 
-    if strategy == 's3':
-        creds = utils.get_credentials()
-        client = boto3.client(
-            "s3",
-            aws_access_key_id=creds["accessKeyId"],
-            aws_secret_access_key=creds["secretAccessKey"],
-            aws_session_token=creds["sessionToken"],
-        )
-    elif strategy == 'http':
-        client = requests.session()
-
+    client, range_get_func = utils.setup_download_client(strategy=strategy)
     with ThreadPoolExecutor(max_workers=20) as executor:
-        results = list(tqdm(executor.map(extract_bytes, repeat(url), offsets, repeat(client)), total=len(offsets)))
+        results = executor.map(extract_metadata_xml_bytes, repeat(url), offsets, repeat(client), repeat(range_get_func))
 
     names = [metadata.name for metadata in metadatas]
     results = {name: result for name, result in zip(names, results)}

@@ -78,7 +78,7 @@ def extract_burst_metadata(
     Returns:
         ElementTree root element of annotation XML
     """
-    annotation_range = f'bytes={metadata.annotation_offset.start}-{metadata.annotation_offset.stop}'
+    annotation_range = f'bytes={metadata.annotation_offset.start}-{metadata.annotation_offset.stop-1}'
     annotation_bytes = range_get_func(client, url, annotation_range)
     annotation_xml = ET.parse(io.BytesIO(zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(annotation_bytes)))
     return annotation_xml
@@ -337,7 +337,7 @@ def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Pat
     index, burst_metadata = json_to_burst_metadata(burst_index_path)
     url = utils.get_download_url(burst_metadata.slc)
 
-    client, range_get_func = utils.setup_download_client(strategy='http')
+    client, range_get_func = utils.setup_download_client(strategy='s3')
     burst_bytes = extract_burst_data(url, burst_metadata, index, client, range_get_func)
     annotation_xml = extract_burst_metadata(url, burst_metadata, client, range_get_func)
 
