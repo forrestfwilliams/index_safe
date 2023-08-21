@@ -13,6 +13,7 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 * Geographic control point information to indexes
 * Insertion of geographic control points into the output burst tiffs
 * Add check for deflate compression before indexing
+* Workflows for PyPI publishing
 
 ### Modified
 * `create_index` and `extract_burst` so that valid window and GCP calculations happen during `extract_burst`
