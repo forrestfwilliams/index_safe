@@ -248,6 +248,70 @@ def get_download_url(scene: str) -> str:
     return url
 
 
+def s3_range_get(client: boto3.client, url: str, range_header: str) -> bytes:
+    """Get a range of bytes from an S1 SLC file in ASF's archive.
+    Used in threading to download a large file in chunks.
+
+    Args:
+        client: boto3 S3 client
+        url: url location of SLC file
+        range_header: range header string
+
+    Returns:
+        bytes of object
+    """
+    key = Path(url).name
+    resp = client.get_object(Bucket=BUCKET, Key=key, Range=range_header)
+    body = resp['Body'].read()
+    return body
+
+
+def setup_download_client(strategy: str = 's3', edl_token: str = None, working_dir: Path = Path('.')) -> bytes:
+    """Create client and range_get_func for downloading from SLC archive based on strategy (s3 | http).
+
+    Args:
+        strategy: strategy to use for download (s3 | http) s3 only works if runnning from us-west-2 region
+        edl_token: EDL token for downloading from ASF's archive, if None will assume token is specified
+                   in environment variable EDL_TOKEN
+        working_dir: working directory where temparary credentials will be stored
+
+    Returns:
+        S3 client or http client, and matching *_range_get function
+    """
+    if strategy == 's3':
+        creds = get_credentials(edl_token, working_dir)
+        client = boto3.client(
+            "s3",
+            aws_access_key_id=creds["accessKeyId"],
+            aws_secret_access_key=creds["secretAccessKey"],
+            aws_session_token=creds["sessionToken"],
+        )
+        range_get = s3_range_get
+
+    elif strategy == 'http':
+        client = requests.session()
+        range_get = http_range_get
+
+    return client, range_get
+
+
+def http_range_get(client: requests.sessions.Session, url: str, range_header: str) -> bytes:
+    """Get a range of bytes from an S1 SLC file in ASF's archive.
+    Used in threading to download a large file in chunks.
+
+    Args:
+        client: requests session
+        url: url location of SLC file
+        range_header: range header string
+
+    Returns:
+        bytes of object
+    """
+    resp = client.get(url, headers={'Range': range_header})
+    body = resp.content
+    return body
+
+
 def download_slc(scene: str, edl_token: str = None, working_dir=Path('.'), strategy='s3') -> str:
     """Download an SLC zip file from ASF.
 
