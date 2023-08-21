@@ -8,7 +8,7 @@ requires-python = ">=3.8"
 authors = [
     {name="Forrest Williams", email="ffwilliams2@alaska.edu"},
 ]
-description = "Index Sentinel-1 SAFE for fast burst download"
+description = "Index Sentinel-1 SAFE for fast burst data and metdata download"
 readme = "README.md"
 classifiers=[
     "Intended Audience :: Science/Research",
