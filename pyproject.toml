@@ -35,6 +35,7 @@ dependencies = [
   "tqdm",
   "numpy",
   "requests",
+  "lxml",
 ]
 
 [project.urls]

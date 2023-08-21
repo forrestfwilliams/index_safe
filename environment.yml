@@ -10,6 +10,7 @@ dependencies:
   - tqdm
   - numpy
   - requests
+  - lxml
   # For packaging, and testing
   - pytest
   - pipreqs
