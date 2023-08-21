@@ -17,6 +17,7 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Modified
 * `create_index` and `extract_burst` so that valid window and GCP calculations happen during `extract_burst`
 * `utils.BurstMetadata` so that it contains annotation and manifest offsets, but not valid window or GCP data
+* Created centralized range get request functionality in `utils`
 
 ## [0.0.1]
 
