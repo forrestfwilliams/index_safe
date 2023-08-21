@@ -49,11 +49,13 @@ class Window:
 class BurstMetadata:
     name: str
     slc: str
+    swath: str
+    burst_index: int
     shape: Iterable[int]  # n_row, n_column
     index_offset: Offset
     uncompressed_offset: Offset
-    valid_window: Window
-    gcps: Iterable[GeoControlPoint]
+    annotation_offset: Offset
+    manifest_offset: Offset
 
     def to_tuple(self):
         tuppled = (
@@ -92,6 +94,8 @@ class BurstMetadata:
         dictionary = {
             'name': self.name,
             'slc': self.slc,
+            'swath': self.swath,
+            'burst_index': self.burst_index,
             'n_rows': int(self.shape[0]),
             'n_columns': int(self.shape[1]),
             'index_offset': {'start': int(self.index_offset.start), 'stop': int(self.index_offset.stop)},
@@ -99,22 +103,14 @@ class BurstMetadata:
                 'start': int(self.uncompressed_offset.start),
                 'stop': int(self.uncompressed_offset.stop),
             },
-            'valid_window': {
-                'xstart': int(self.valid_window.xstart),
-                'xend': int(self.valid_window.xend),
-                'ystart': int(self.valid_window.ystart),
-                'yend': int(self.valid_window.yend),
+            'annotation_offset': {
+                'start': int(self.annotation_offset.start),
+                'stop': int(self.annotation_offset.stop),
             },
-            'gcps': [
-                {
-                    'pixel': int(gcp.pixel),
-                    'line': int(gcp.line),
-                    'lon': float(gcp.lon),
-                    'lat': float(gcp.lat),
-                    'hgt': float(gcp.hgt),
-                }
-                for gcp in self.gcps
-            ],
+            'manifest_offset': {
+                'start': int(self.manifest_offset.start),
+                'stop': int(self.manifest_offset.stop),
+            },
         }
         return dictionary
 
@@ -250,6 +246,70 @@ def get_download_url(scene: str) -> str:
         product_type += '_' + scene[10] + scene[14]
     url = f'{SENTINEL_DISTRIBUTION_URL}/{product_type}/{mission}/{scene}.zip'
     return url
+
+
+def s3_range_get(client: boto3.client, url: str, range_header: str) -> bytes:
+    """Get a range of bytes from an S1 SLC file in ASF's archive.
+    Used in threading to download a large file in chunks.
+
+    Args:
+        client: boto3 S3 client
+        url: url location of SLC file
+        range_header: range header string
+
+    Returns:
+        bytes of object
+    """
+    key = Path(url).name
+    resp = client.get_object(Bucket=BUCKET, Key=key, Range=range_header)
+    body = resp['Body'].read()
+    return body
+
+
+def setup_download_client(strategy: str = 's3', edl_token: str = None, working_dir: Path = Path('.')) -> bytes:
+    """Create client and range_get_func for downloading from SLC archive based on strategy (s3 | http).
+
+    Args:
+        strategy: strategy to use for download (s3 | http) s3 only works if runnning from us-west-2 region
+        edl_token: EDL token for downloading from ASF's archive, if None will assume token is specified
+                   in environment variable EDL_TOKEN
+        working_dir: working directory where temparary credentials will be stored
+
+    Returns:
+        S3 client or http client, and matching *_range_get function
+    """
+    if strategy == 's3':
+        creds = get_credentials(edl_token, working_dir)
+        client = boto3.client(
+            "s3",
+            aws_access_key_id=creds["accessKeyId"],
+            aws_secret_access_key=creds["secretAccessKey"],
+            aws_session_token=creds["sessionToken"],
+        )
+        range_get = s3_range_get
+
+    elif strategy == 'http':
+        client = requests.session()
+        range_get = http_range_get
+
+    return client, range_get
+
+
+def http_range_get(client: requests.sessions.Session, url: str, range_header: str) -> bytes:
+    """Get a range of bytes from an S1 SLC file in ASF's archive.
+    Used in threading to download a large file in chunks.
+
+    Args:
+        client: requests session
+        url: url location of SLC file
+        range_header: range header string
+
+    Returns:
+        bytes of object
+    """
+    resp = client.get(url, headers={'Range': range_header})
+    body = resp.content
+    return body
 
 
 def download_slc(scene: str, edl_token: str = None, working_dir=Path('.'), strategy='s3') -> str:

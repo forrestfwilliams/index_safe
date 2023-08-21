@@ -1,13 +1,16 @@
 import base64
+import io
 import json
 import os
 import struct
 import tempfile
+import xml.etree.ElementTree as ET
+import zlib
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Callable, Iterable, Tuple, Union
 
 import boto3
 import numpy as np
@@ -27,68 +30,150 @@ gdal.UseExceptions()
 KB = 1024
 MB = KB * KB
 
-BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
-
-def s3_range_get(client: boto3.client, key: str, range_header: str, bucket: str = BUCKET) -> bytes:
-    """Get a range of bytes from an S3 object.
-    Used in threading to download a large file in chunks.
-
-    Args:
-        client: boto3 S3 client
-        key: S3 object key
-        range_header: range header string
-        bucket: S3 bucket name (default is ASF's S1 SLC bucket)
-    Returns:
-        bytes of object
-    """
-    resp = client.get_object(Bucket=BUCKET, Key=key, Range=range_header)
-    body = resp['Body'].read()
-    return body
-
-
-def extract_bytes_by_burst(
+def extract_burst_data(
     url: str,
     metadata: utils.BurstMetadata,
     index: zran.Index,
-    edl_token: str = None,
-    working_dir: Path = Path('.'),
-    strategy: str = 's3',
+    client: Union[boto3.client, requests.sessions.Session],
+    range_get_func: Callable,
 ) -> bytes:
-    """Extract bytes pertaining to a burst from a Sentinel-1 SLC archive using a GZIDX that represents
-    a single burst. Index file must be in working directory.
+    """Extract bytes pertaining to a burst from a Sentinel-1 SLC archive using a zran index that represents
+    a single burst.
 
     Args:
         url: url location of SLC archive
         metadata: metadata object for burst to extract
-        strategy: strategy to use for download (s3 | http) s3 only works if runnning from us-west-2 region
+        index: zran index object for SLC archive
+        client: boto3 S3 client or requests session
+        range_get_func: function to use to get a range of bytes from SLC archive
 
     Returns:
-        bytes representing a single burst
+        bytes of burst data
     """
-    if strategy == 's3':
-        creds = utils.get_credentials(edl_token, working_dir)
-        client = boto3.client(
-            "s3",
-            aws_access_key_id=creds["accessKeyId"],
-            aws_secret_access_key=creds["secretAccessKey"],
-            aws_session_token=creds["sessionToken"],
-        )
-        total_size = (metadata.index_offset.stop - 1) - metadata.index_offset.start
-        range_headers = utils.calculate_range_parameters(total_size, metadata.index_offset.start, 20 * MB)
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            results = executor.map(s3_range_get, repeat(client), repeat(Path(url).name), range_headers)
-            body = b''.join(results)
-
-    elif strategy == 'http':
-        range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop - 1}'
-        client = requests.session()
-        resp = client.get(url, headers={'Range': range_header})
-        body = resp.content
-
+    total_size = (metadata.index_offset.stop - 1) - metadata.index_offset.start
+    range_headers = utils.calculate_range_parameters(total_size, metadata.index_offset.start, 20 * MB)
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        results = executor.map(range_get_func, repeat(client), repeat(url), range_headers)
+        body = b''.join(results)
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = zran.decompress(body, index, metadata.uncompressed_offset.start, length)
     return burst_bytes
+
+
+def extract_burst_metadata(
+    url: str,
+    metadata: utils.BurstMetadata,
+    client: Union[boto3.client, requests.sessions.Session],
+    range_get_func: Callable,
+) -> ET.Element:
+    """Extract and load bytes pertaining to a burst's partner annotation XML file from a Sentinel-1 SLC archive.
+
+    Args:
+        url: url location of SLC archive
+        metadata: metadata object for burst to extract
+        client: boto3 S3 client or requests session
+        range_get_func: function to use to get a range of bytes from SLC archive
+
+    Returns:
+        ElementTree root element of annotation XML
+    """
+    annotation_range = f'bytes={metadata.annotation_offset.start}-{metadata.annotation_offset.stop-1}'
+    annotation_bytes = range_get_func(client, url, annotation_range)
+    annotation_xml = ET.parse(io.BytesIO(zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(annotation_bytes)))
+    return annotation_xml
+
+
+def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:
+    """Written by Jason Ninneman for the ASF I&A team's burst extractor.
+    Using the information contained within a SAFE annotation XML burst
+    element, identify the window of a burst that contains valid data.
+
+    Args:
+        index: zero-indexed burst number to compute the valid window for
+        burst: <burst> element of annotation XML for the given index
+
+    Returns:
+        Row and column ranges for the valid data within a burst
+    """
+    # all offsets, even invalid offsets
+    offsets_range = utils.Offset(
+        np.array([int(val) for val in burst.find('firstValidSample').text.split()]),
+        np.array([int(val) for val in burst.find('lastValidSample').text.split()]),
+    )
+
+    # returns the indices of lines containing valid data
+    lines_with_valid_data = np.flatnonzero(offsets_range.stop - offsets_range.start)
+
+    # get first and last sample with valid data per line
+    # x-axis, range
+    valid_offsets_range = utils.Offset(
+        offsets_range.start[lines_with_valid_data].min(),
+        offsets_range.stop[lines_with_valid_data].max(),
+    )
+
+    # get the first and last line with valid data
+    # y-axis, azimuth
+    valid_offsets_azimuth = utils.Offset(
+        lines_with_valid_data.min(),
+        lines_with_valid_data.max(),
+    )
+
+    # x-length
+    length_range = valid_offsets_range.stop - valid_offsets_range.start
+    # y-length
+    length_azimuth = len(lines_with_valid_data)
+
+    valid_window = utils.Window(
+        valid_offsets_range.start,
+        valid_offsets_range.start + length_range,
+        valid_offsets_azimuth.start,
+        valid_offsets_azimuth.start + length_azimuth,
+    )
+
+    return valid_window
+
+
+def get_gcps_from_xml(annotation_xml: ET.Element) -> Iterable[utils.GeoControlPoint]:
+    """Get geolocation control points from annotation XML.
+
+    Args:
+        annotation_xml: root element of annotation XML
+
+    Returns:
+        List of geolocation control points
+    """
+    xml_gcps = annotation_xml.findall('.//{*}geolocationGridPoint')
+    gcps = []
+    for xml_gcp in xml_gcps:
+        pixel = int(xml_gcp.findtext('.//{*}pixel'))
+        line = int(xml_gcp.findtext('.//{*}line'))
+        longitude = round(float(xml_gcp.findtext('.//{*}longitude')), 7)
+        latitude = round(float(xml_gcp.findtext('.//{*}latitude')), 7)
+        height = round(float(xml_gcp.findtext('.//{*}height')), 7)
+        gcps.append(utils.GeoControlPoint(pixel, line, longitude, latitude, height))
+    return gcps
+
+
+def format_gcps_for_burst(
+    burst_number: int, burst_n_lines: int, swath_gcps: Iterable[utils.GeoControlPoint]
+) -> Iterable[utils.GeoControlPoint]:
+    """Format geolocation control points for a burst by making line numbers
+    relative to the burst, and removing any GCPs that are outside of the burst.
+
+    Args:
+        burst_number: zero-indexed burst number
+        burst_n_lines: number of lines in the burst
+        swath_gcps: list of geolocation control points for the entire swath
+
+    Returns:
+        List of geolocation control points for a particular burst
+    """
+    gcps = []
+    burst_starting_line = burst_number * burst_n_lines
+    for gcp in swath_gcps:
+        gcps.append(utils.GeoControlPoint(gcp.pixel, gcp.line - burst_starting_line, gcp.lon, gcp.lat, gcp.hgt))
+    return gcps
 
 
 def burst_bytes_to_numpy(burst_bytes: bytes, shape: Iterable[int]) -> np.ndarray:
@@ -141,15 +226,20 @@ def json_to_burst_metadata(burst_json_path: str) -> Tuple[zran.Index, utils.Burs
     decompressed_offset = utils.Offset(
         metadata_dict['uncompressed_offset']['start'], metadata_dict['uncompressed_offset']['stop']
     )
-    window = utils.Window(
-        metadata_dict['valid_window']['xstart'],
-        metadata_dict['valid_window']['xend'],
-        metadata_dict['valid_window']['ystart'],
-        metadata_dict['valid_window']['yend'],
+    annotation_offset = utils.Offset(
+        metadata_dict['annotation_offset']['start'], metadata_dict['annotation_offset']['stop']
     )
-    gcps = [utils.GeoControlPoint(**gcp) for gcp in metadata_dict['gcps']]
+    manifest_offset = utils.Offset(metadata_dict['manifest_offset']['start'], metadata_dict['manifest_offset']['stop'])
     burst_metadata = utils.BurstMetadata(
-        metadata_dict['name'], metadata_dict['slc'], shape, index_offset, decompressed_offset, window, gcps
+        metadata_dict['name'],
+        metadata_dict['slc'],
+        metadata_dict['swath'],
+        metadata_dict['burst_index'],
+        shape,
+        index_offset,
+        decompressed_offset,
+        annotation_offset,
+        manifest_offset,
     )
     decoded_bytes = base64.b64decode(metadata_dict['dflidx_b64'])
     index = zran.Index.parse_index_file(decoded_bytes)
@@ -246,10 +336,19 @@ def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Pat
     """
     index, burst_metadata = json_to_burst_metadata(burst_index_path)
     url = utils.get_download_url(burst_metadata.slc)
-    burst_bytes = extract_bytes_by_burst(url, burst_metadata, index, edl_token, working_dir)
+
+    client, range_get_func = utils.setup_download_client(strategy='s3')
+    burst_bytes = extract_burst_data(url, burst_metadata, index, client, range_get_func)
+    annotation_xml = extract_burst_metadata(url, burst_metadata, client, range_get_func)
+
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
-    burst_array = invalid_to_nodata(burst_array, burst_metadata.valid_window)
-    out_path = array_to_raster(burst_metadata.name, burst_array, burst_metadata.gcps)
+    valid_window = compute_valid_window(
+        burst_metadata.burst_index, annotation_xml.findall('.//{*}burst')[burst_metadata.burst_index]
+    )
+    burst_array = invalid_to_nodata(burst_array, valid_window)
+    swath_gcps = get_gcps_from_xml(annotation_xml)
+    gcps = format_gcps_for_burst(burst_metadata.burst_index, burst_metadata.shape[0], swath_gcps)
+    out_path = array_to_raster(burst_metadata.name, burst_array, gcps)
     return out_path
 
 
