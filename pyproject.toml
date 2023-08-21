@@ -2,9 +2,19 @@
 requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+
 [project]
 name = "index_safe"
 requires-python = ">=3.8"
+dynamic = ["version"]
 authors = [
     {name="Forrest Williams", email="ffwilliams2@alaska.edu"},
 ]
@@ -26,7 +36,10 @@ dependencies = [
   "numpy",
   "requests",
 ]
-dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/forrestfwilliams/indexed_safe"
+"Bug Tracker" ="https://github.com/forrestfwilliams/indexed_safe/issues"
 
 [project.scripts]
 create_index = "index_safe.create_index:main"
@@ -38,13 +51,10 @@ develop = [
     "pytest",
 ]
 
-[project.urls]
-Homepage = "https://github.com/forrestfwilliams/indexed_safe"
-"Bug Tracker" ="https://github.com/forrestfwilliams/indexed_safe/issues" 
-
-[tool.setuptools]
-include-package-data = true
-zip-safe = false
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
 
 [tool.black]
 line-length = 120
@@ -53,22 +63,3 @@ include = '\.pyx?$'
 
 [tool.ruff]
 line-length = 120
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools_scm]
-
-[tool.pytest.ini_options]
-minversion = "6.0"
-addopts = "-ra -q"
-testpaths = ["tests"]
-
-[tool.cibuildwheel]
-build = "cp3{8,9,10,11}-*"
-
-[tool.cibuildwheel.macos]
-archs = ["x86_64", "arm64"]
-
-[tool.cibuildwheel.linux]
-archs = ["x86_64"]
