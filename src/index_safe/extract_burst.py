@@ -10,7 +10,7 @@ from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Callable, Iterable, Tuple
 
 import boto3
 import numpy as np
@@ -122,47 +122,105 @@ def format_gcps_for_burst(
     burst_starting_line = burst_number * burst_n_lines
     for gcp in swath_gcps:
         gcps.append(utils.GeoControlPoint(gcp.pixel, gcp.line - burst_starting_line, gcp.lon, gcp.lat, gcp.hgt))
-
-    # TODO: Why does this create incorrect geolocation
-    # relevant_gcps = [gcp for gcp in gcps if 0 <= gcp.line <= burst_n_lines]
     return gcps
 
 
-def s3_range_get(client: boto3.client, key: str, range_header: str, bucket: str = BUCKET) -> bytes:
-    """Get a range of bytes from an S3 object.
+def s3_range_get(client: boto3.client, url: str, range_header: str) -> bytes:
+    """Get a range of bytes from an S1 SLC file in ASF's archive.
     Used in threading to download a large file in chunks.
 
     Args:
         client: boto3 S3 client
-        key: S3 object key
+        url: url location of SLC file
         range_header: range header string
-        bucket: S3 bucket name (default is ASF's S1 SLC bucket)
+
     Returns:
         bytes of object
     """
+    key = Path(url).name
     resp = client.get_object(Bucket=BUCKET, Key=key, Range=range_header)
     body = resp['Body'].read()
     return body
 
 
-def extract_bytes_by_burst(
+def http_range_get(client: requests.Session, url: str, range_header: str) -> bytes:
+    """Get a range of bytes from an S1 SLC file in ASF's archive.
+    Used in threading to download a large file in chunks.
+
+    Args:
+        client: requests session
+        url: url location of SLC file
+        range_header: range header string
+
+    Returns:
+        bytes of object
+    """
+    resp = client.get(url, headers={'Range': range_header})
+    body = resp.content
+    return body
+
+
+def extract_burst_data(
     url: str,
     metadata: utils.BurstMetadata,
     index: zran.Index,
-    edl_token: str = None,
-    working_dir: Path = Path('.'),
-    strategy: str = 's3',
+    client: boto3.client,
+    range_get_func: Callable,
 ) -> bytes:
-    """Extract bytes pertaining to a burst from a Sentinel-1 SLC archive using a GZIDX that represents
-    a single burst. Index file must be in working directory.
+    """Extract bytes pertaining to a burst from a Sentinel-1 SLC archive using a zran index that represents
+    a single burst.
 
     Args:
         url: url location of SLC archive
         metadata: metadata object for burst to extract
-        strategy: strategy to use for download (s3 | http) s3 only works if runnning from us-west-2 region
+        index: zran index object for SLC archive
+        client: boto3 S3 client or requests session
+        range_get_func: function to use to get a range of bytes from SLC archive
 
     Returns:
-        bytes representing a single burst
+        bytes of burst data
+    """
+    total_size = (metadata.index_offset.stop - 1) - metadata.index_offset.start
+    range_headers = utils.calculate_range_parameters(total_size, metadata.index_offset.start, 20 * MB)
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        results = executor.map(range_get_func, repeat(client), repeat(url), range_headers)
+        body = b''.join(results)
+    length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
+    burst_bytes = zran.decompress(body, index, metadata.uncompressed_offset.start, length)
+    return burst_bytes
+
+
+def extract_burst_metadata(
+    url: str, metadata: utils.BurstMetadata, client: boto3.client, range_get_func: Callable
+) -> ET.Element:
+    """Extract and load bytes pertaining to a burst's partner annotation XML file from a Sentinel-1 SLC archive.
+
+    Args:
+        url: url location of SLC archive
+        metadata: metadata object for burst to extract
+        client: boto3 S3 client or requests session
+        range_get_func: function to use to get a range of bytes from SLC archive
+
+    Returns:
+        ElementTree root element of annotation XML
+    """
+    annotation_range = f'bytes={metadata.annotation_offset.start}-{metadata.annotation_offset.stop}'
+    annotation_bytes = range_get_func(client, url, annotation_range)
+    annotation_xml = ET.parse(io.BytesIO(zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(annotation_bytes)))
+    return annotation_xml
+
+
+def setup_download_client(strategy: str = 's3', edl_token: str = None, working_dir: Path = Path('.')) -> bytes:
+    """Create client and range_get_func for downloading from SLC archive based on strategy (s3 | http).
+
+    Args:
+        strategy: strategy to use for download (s3 | http) s3 only works if runnning from us-west-2 region
+        edl_token: EDL token for downloading from ASF's archive, if None will assume token is specified
+                   in environment variable EDL_TOKEN
+        working_dir: working directory where temparary credentials will be stored
+
+    Returns:
+        S3 client or http client, and matching *_range_get function
     """
     if strategy == 's3':
         creds = utils.get_credentials(edl_token, working_dir)
@@ -172,25 +230,13 @@ def extract_bytes_by_burst(
             aws_secret_access_key=creds["secretAccessKey"],
             aws_session_token=creds["sessionToken"],
         )
-        total_size = (metadata.index_offset.stop - 1) - metadata.index_offset.start
-        range_headers = utils.calculate_range_parameters(total_size, metadata.index_offset.start, 20 * MB)
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            results = executor.map(s3_range_get, repeat(client), repeat(Path(url).name), range_headers)
-            body = b''.join(results)
+        range_get = s3_range_get
 
     elif strategy == 'http':
-        range_header = f'bytes={metadata.index_offset.start}-{metadata.index_offset.stop - 1}'
         client = requests.session()
-        resp = client.get(url, headers={'Range': range_header})
-        body = resp.content
+        range_get = http_range_get
 
-    length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
-    burst_bytes = zran.decompress(body, index, metadata.uncompressed_offset.start, length)
-
-    annotation_range = f'bytes={metadata.annotation_offset.start}-{metadata.annotation_offset.stop}'
-    annotation_bytes = s3_range_get(client, Path(url).name, annotation_range)
-    annotation_xml = ET.parse(io.BytesIO(zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(annotation_bytes)))
-    return burst_bytes, annotation_xml
+    return client, range_get
 
 
 def burst_bytes_to_numpy(burst_bytes: bytes, shape: Iterable[int]) -> np.ndarray:
@@ -353,7 +399,11 @@ def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Pat
     """
     index, burst_metadata = json_to_burst_metadata(burst_index_path)
     url = utils.get_download_url(burst_metadata.slc)
-    burst_bytes, annotation_xml = extract_bytes_by_burst(url, burst_metadata, index, edl_token, working_dir)
+
+    client, range_get_func = setup_download_client(strategy='s3')
+    burst_bytes = extract_burst_data(url, burst_metadata, index, client, range_get_func)
+    annotation_xml = extract_burst_metadata(url, burst_metadata, client, range_get_func)
+
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     valid_window = compute_valid_window(
         burst_metadata.burst_index, annotation_xml.findall('.//{*}burst')[burst_metadata.burst_index]
