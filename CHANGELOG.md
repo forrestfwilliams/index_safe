@@ -11,6 +11,7 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 * Tests for utils.py
+* Tests for create_index.py
 
 ## [0.1.0]
 
