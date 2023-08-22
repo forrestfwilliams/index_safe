@@ -13,8 +13,6 @@ import zran
 
 from index_safe import utils
 
-DFL_WBITS = -15
-
 
 @pytest.fixture()
 def example_credentials():
