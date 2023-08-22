@@ -1,4 +1,7 @@
 import json
+import os
+import random
+import zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -6,9 +9,14 @@ from unittest.mock import patch
 import botocore
 import pytest
 import requests
+import zran
+
 from index_safe import utils
 
-@pytest.fixture(scope='module')
+DFL_WBITS = -15
+
+
+@pytest.fixture()
 def example_credentials():
     expire_time = datetime.now(timezone.utc) + timedelta(hours=1)
     example_credentials = {
@@ -18,6 +26,39 @@ def example_credentials():
         'expiration': expire_time.isoformat(),
     }
     yield example_credentials
+
+
+@pytest.fixture()
+def zip_stored(tmpdir):
+    file_path = Path(tmpdir) / 'test_file.txt'
+    file_path.write_text('Hello World!')
+    zip_path = Path(tmpdir) / 'test_file.zip'
+    with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_STORED) as zip_file:
+        zip_file.write(file_path)
+    yield zip_path, file_path.name
+    zip_path.unlink()
+    file_path.unlink()
+
+
+@pytest.fixture(scope='module')
+def data():
+    # Can't use os.random directly because there needs to be some
+    # repitition in order for compression to be effective
+    words = [os.urandom(8) for _ in range(1000)]
+    out = b''.join([random.choice(words) for _ in range(524288)])
+    return out
+
+
+@pytest.fixture()
+def zip_deflated(tmpdir, data):
+    file_path = Path(tmpdir) / 'test_file.bin'
+    file_path.write_bytes(data)
+    zip_path = Path(tmpdir) / 'test_file.zip'
+    with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=7) as zip_file:
+        zip_file.write(file_path)
+    yield zip_path, file_path.name
+    zip_path.unlink()
+    file_path.unlink()
 
 
 def test_calculate_range_parameters():
@@ -67,3 +108,53 @@ def test_setup_download_client(example_credentials):
         assert range_get is utils.s3_range_get
 
 
+def test_get_zip_compressed_offset(zip_stored):
+    zip_path, member_name = zip_stored
+    with zipfile.ZipFile(zip_path) as f:
+        zinfo = [x for x in f.infolist() if member_name in x.filename][0]
+
+    offset = utils.get_zip_compressed_offset(zip_path, zinfo)
+    with open(zip_path, 'rb') as f:
+        f.seek(offset.start)
+        output = f.read(offset.stop - offset.start)
+
+    assert b'Hello World!' == output
+
+
+def test_get_zip_indexer():
+    index = utils.ZipIndexer('test.zip', 'test.txt')
+    assert index.zip_path == 'test.zip'
+    assert index.member_name == 'test.txt'
+    assert index.spacing == 2**20
+    assert index.index is None
+
+
+def test_create_full_dflidx(zip_deflated):
+    zip_path, member_name = zip_deflated
+    indexer = utils.ZipIndexer(zip_path, member_name)
+    indexer.create_full_dflidx()
+    assert isinstance(indexer.index, zran.Index)
+    assert indexer.index.have > 0
+    first_point = indexer.index.points[0]
+    assert first_point.outloc == 0
+    assert first_point.inloc == 0
+    assert first_point.bits == 0
+
+
+def test_subset_dflidx(zip_deflated, data):
+    zip_path, member_name = zip_deflated
+    indexer = utils.ZipIndexer(zip_path, member_name, spacing=2**18)
+    indexer.create_full_dflidx()
+    step = 2**18
+    compressed_offset, uncompressed_offset, modified_index = indexer.subset_dflidx([2 * step, 4 * step], 6 * step)
+    assert modified_index.have == 2
+
+    first_point = modified_index.points[0]
+    assert first_point.outloc == 0
+    assert first_point.inloc == 1  # to account for non-zero point.bits
+
+    with open(zip_path, 'rb') as f:
+        f.seek(compressed_offset.start)
+        compressed_test_data = f.read(compressed_offset.stop - compressed_offset.start)
+    test_data = zran.decompress(compressed_test_data, modified_index, 0, modified_index.uncompressed_size)
+    assert test_data == data[uncompressed_offset.start : uncompressed_offset.stop]
