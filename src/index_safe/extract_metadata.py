@@ -1,3 +1,4 @@
+import io
 import json
 import zlib
 from argparse import ArgumentParser
@@ -21,13 +22,13 @@ MB = 1024 * KB
 MAX_WBITS = 15
 
 
-def extract_metadata_xml_bytes(
+def extract_metadata_xml(
     url: str,
     offset: utils.Offset,
     client: Union[boto3.client, requests.sessions.Session],
     range_get_func: Callable,
-) -> bytes:
-    """Extract and decompress bytes pertaining to an metadata XML file from a Sentinel-1 SLC archive.
+) -> lxml.etree.Element:
+    """Extract and decompress bytes pertaining to a metadata XML file from a Sentinel-1 SLC archive.
 
     Args:
         url: url location of SLC archive
@@ -43,10 +44,11 @@ def extract_metadata_xml_bytes(
     elif offset.start < 0 or offset.stop < 0:
         raise ValueError('offset stop and offset start must be greater than 0')
 
-    annotation_range = f'bytes={offset.start}-{offset.stop-1}'
-    annotation_bytes = range_get_func(client, url, annotation_range)
-    annotation_xml = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(annotation_bytes)
-    return annotation_xml
+    xml_range = f'bytes={offset.start}-{offset.stop-1}'
+    compressed_bytes = range_get_func(client, url, xml_range)
+    uncompressed_bytes = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(compressed_bytes)
+    metadata_xml = lxml.etree.parse(io.BytesIO(uncompressed_bytes))
+    return metadata_xml
 
 
 def json_to_metadata_entries(json_path: str) -> Iterable[utils.XmlMetadata]:
@@ -140,7 +142,9 @@ def combine_xml_metadata_files(results_dict: dict, output_name='transformed.xml'
             manifest_path = path
         else:
             metadata_paths.append(path)
-        path.write_bytes(results_dict[name])
+        xml_string = lxml.etree.tostring(results_dict[name], pretty_print=True, encoding='utf-8', xml_declaration=True)
+        path.write_bytes(xml_string)
+        # path.write_bytes(results_dict[name])
 
     renderer = XsltRenderer(Path(__file__).parent / 'burst.xsl')
     renderer.render_to(output_name, metadata_paths, manifest_path)
@@ -199,7 +203,7 @@ def extract_metadata(json_file_path: str, polarization: str, strategy='s3'):
 
     client, range_get_func = utils.setup_download_client(strategy=strategy)
     with ThreadPoolExecutor(max_workers=20) as executor:
-        results = executor.map(extract_metadata_xml_bytes, repeat(url), offsets, repeat(client), repeat(range_get_func))
+        results = executor.map(extract_metadata_xml, repeat(url), offsets, repeat(client), repeat(range_get_func))
 
     names = [metadata.name for metadata in metadatas]
     results = {name: result for name, result in zip(names, results)}
