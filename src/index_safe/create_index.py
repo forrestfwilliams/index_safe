@@ -6,7 +6,6 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from argparse import ArgumentParser
-from collections import ChainMap
 from pathlib import Path
 from typing import Iterable, Union
 
@@ -20,26 +19,36 @@ except ModuleNotFoundError:
     import utils
 
 
-def get_burst_annotation_data(zipped_safe_path: str, swath_path: str) -> Iterable:
+def load_annotation_data(zipped_safe_path: str, tiff_name: str) -> ET.Element:
+    """Load annotation XML from zipped SAFE.
+
+    Args:
+        zipped_safe_path: path to a SAFE zip containing the annotation XML
+        tiff_name: name of the tiff to extract annotation XML for
+
+    Returns:
+        xml: ElementTree object containing annotation XML
+    """
+    safe_name = Path(zipped_safe_path).with_suffix('.SAFE').name
+    annotation_path = Path(safe_name) / 'annotation' / Path(tiff_name).with_suffix('.xml')
+    with zipfile.ZipFile(zipped_safe_path) as f:
+        annotation_bytes = f.read(str(annotation_path))
+    xml = ET.parse(io.BytesIO(annotation_bytes)).getroot()
+    return xml
+
+
+def get_burst_annotation_data(xml: ET.Element) -> Iterable:
     """Obtain the information needed to extract a burst that is contained within
     a SAFE annotation XML.
 
     Args:
-        zipped_safe_path: path to a SAFE zip containing the annotation XML
-        swath_path: The within the zip path to the swath tiff you need the
-            annotation XML for
+        xml: ElementTree object containing annotation XML
 
     Returns:
         burst_shape: numpy-style tuple of burst array size (n rows, n columns)
         burst_offsets: uncompressed byte offsets for the bursts contained within
             a swath
     """
-    swath_path = Path(swath_path)
-    annotation_path = swath_path.parent.parent / 'annotation' / swath_path.with_suffix('.xml').name
-    with zipfile.ZipFile(zipped_safe_path) as f:
-        annotation_bytes = f.read(str(annotation_path))
-
-    xml = ET.parse(io.BytesIO(annotation_bytes)).getroot()
     burst_xmls = xml.findall('.//{*}burst')
     n_lines = int(xml.findtext('.//{*}linesPerBurst'))
     n_samples = int(xml.findtext('.//{*}samplesPerBurst'))
@@ -83,55 +92,75 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
     return '_'.join(all_parts) + '.tiff'
 
 
+def create_burst_dflidx(
+    indexer: utils.ZipIndexer, burst_offset: utils.Offset
+) -> tuple[utils.Offset, utils.Offset, bytes]:
+    """Create a burst-specific zran index containing information needed to download burst tiff from compressed
+
+    Args:
+        indexer: ZipIndexer object for the SAFE
+        burst_offset: Uncompressed offset of burst within SAFE
+
+    Returns:
+        compressed_offset: Compressed offset of zran window for burst within SAFE
+        index_burst_offset: Uncompressed offset of burst within zran index
+        dflidx: zran index file for burst
+    """
+    compressed_offset, uncompressed_offset, modified_index = indexer.subset_dflidx(
+        locations=[burst_offset.start], end_location=burst_offset.stop
+    )
+    index_burst_offset = utils.Offset(
+        burst_offset.start - uncompressed_offset.start, burst_offset.stop - uncompressed_offset.start
+    )
+    dflidx = modified_index.create_index_file()
+    return compressed_offset, index_burst_offset, dflidx
+
+
 def create_index(
-    zipped_safe_path: str, xml_metadatas: Iterable[utils.XmlMetadata], zinfo: zipfile.ZipInfo, output_json: bool = True
+    zipped_safe_path: str,
+    tiff_name: str,
+    annotation_offset: utils.Offset,
+    manifest_offset: utils.Offset,
+    output_json: bool = True,
 ) -> Union[dict, bytes]:
     """Create a burst-specific index containing information needed to download burst tiff from compressed
     SAFE file directly, and remove invalid data.
 
     Args:
         zipped_safe_path: Path to zipped SAFE
-        xml_metadatas: List of XmlMetadata objects for all XML files in SAFE
-        zinfo: ZipInfo object for desired XML
+        tiff_name: Name of the swath tiff
+        annotation_offset: Uncompressed offset of annotation XML within SAFE
+        manifest_offset: Uncompressed offset of manifest XML within SAFE
         output_json: Whether to output index as json or bytes
 
     Returns:
         dictionary or bytes object containing information needed to download and remove invalid data
     """
     slc_name = Path(zipped_safe_path).with_suffix('').name
-    tiff_name = Path(zinfo.filename).name
-    swath_name = Path(zinfo.filename).name.split('-')[1].upper()
-    annotation_name = Path(zinfo.filename).with_suffix('.xml').name
+    swath_name = tiff_name.split('-')[1].upper()
 
-    annotation_offset = [item for item in xml_metadatas if item.name == annotation_name][0].offset
-    manifest_offset = [item for item in xml_metadatas if item.name == 'manifest.safe'][0].offset
-    burst_shape, burst_offsets = get_burst_annotation_data(zipped_safe_path, zinfo.filename)
+    xml = load_annotation_data(zipped_safe_path, tiff_name)
+    burst_shape, burst_offsets = get_burst_annotation_data(xml)
+    swath_level_info = {
+        'slc': slc_name,
+        'swath': swath_name,
+        'shape': burst_shape,
+        'annotation_offset': annotation_offset,
+        'manifest_offset': manifest_offset,
+    }
 
     bursts = {}
     indexer = utils.ZipIndexer(zipped_safe_path, tiff_name)
     indexer.create_full_dflidx()
     for burst_index, burst_offset in enumerate(burst_offsets):
-        burst_name = create_burst_name(slc_name, zinfo.filename, burst_index)
-
-        compressed_offset, uncompressed_offset, modified_index = indexer.subset_dflidx(
-            locations=[burst_offset.start], end_location=burst_offset.stop
-        )
-        dflidx = modified_index.create_index_file()
-
-        index_burst_offset = utils.Offset(
-            burst_offset.start - uncompressed_offset.start, burst_offset.stop - uncompressed_offset.start
-        )
-
+        burst_name = create_burst_name(slc_name, tiff_name, burst_index)
+        compressed_offset, index_burst_offset, dflidx = create_burst_dflidx(indexer, burst_offset)
         burst = utils.BurstMetadata(
-            burst_name,
-            slc_name,
-            swath_name,
-            burst_index,
-            burst_shape,
-            compressed_offset,
-            index_burst_offset,
-            annotation_offset,
-            manifest_offset,
+            name=burst_name,
+            burst_index=burst_index,
+            index_offset=compressed_offset,
+            uncompressed_offset=index_burst_offset,
+            **swath_level_info,
         )
 
         if output_json:
@@ -166,7 +195,7 @@ def save_xml_metadata_as_json(entries: Iterable[utils.XmlMetadata], out_name: st
     return out_name
 
 
-def get_indexes(zipped_safe_path: Path):
+def get_indexes(zipped_safe_path: Path) -> tuple[list[utils.XmlMetadata], dict[str : utils.BurstMetadata]]:
     """Get indexes for XML and bursts in zipped SAFE.
 
     Args:
@@ -193,7 +222,15 @@ def get_indexes(zipped_safe_path: Path):
     xml_metadatas = [create_xml_metadata(zipped_safe_path, x) for x in tqdm(xmls)]
 
     print('Reading Bursts...')
-    burst_metadatas = dict(ChainMap(*[create_index(zipped_safe_path, xml_metadatas, x) for x in tqdm(tiffs)]))
+    burst_metadatas = []
+    for tiff in tqdm(tiffs[0:1]):
+        tiff_name = Path(tiff.filename).name
+        annotation_name = Path(tiff_name).with_suffix('.xml').name
+        annotation_offset = [item for item in xml_metadatas if item.name == annotation_name][0].offset
+        manifest_offset = [item for item in xml_metadatas if item.name == 'manifest.safe'][0].offset
+        burst_metadata = create_index(zipped_safe_path, tiff_name, annotation_offset, manifest_offset)
+        burst_metadatas.append(burst_metadata)
+    burst_metadatas = {k: v for d in burst_metadatas for k, v in d.items()}
     return xml_metadatas, burst_metadatas
 
 

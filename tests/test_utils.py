@@ -1,62 +1,14 @@
 import json
-import os
-import random
 import zipfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 import botocore
-import pytest
 import requests
 import zran
 
 from index_safe import utils
-
-
-@pytest.fixture()
-def example_credentials():
-    expire_time = datetime.now(timezone.utc) + timedelta(hours=1)
-    example_credentials = {
-        'accessKeyId': 'foo',
-        'secretAccessKey': 'bar',
-        'sessionToken': 'baz',
-        'expiration': expire_time.isoformat(),
-    }
-    yield example_credentials
-
-
-@pytest.fixture()
-def zip_stored(tmpdir):
-    file_path = Path(tmpdir) / 'test_file.txt'
-    file_path.write_text('Hello World!')
-    zip_path = Path(tmpdir) / 'test_file.zip'
-    with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_STORED) as zip_file:
-        zip_file.write(file_path)
-    yield zip_path, file_path.name
-    zip_path.unlink()
-    file_path.unlink()
-
-
-@pytest.fixture(scope='module')
-def data():
-    # Can't use os.random directly because there needs to be some
-    # repitition in order for compression to be effective
-    words = [os.urandom(8) for _ in range(1000)]
-    out = b''.join([random.choice(words) for _ in range(524288)])
-    return out
-
-
-@pytest.fixture()
-def zip_deflated(tmpdir, data):
-    file_path = Path(tmpdir) / 'test_file.bin'
-    file_path.write_bytes(data)
-    zip_path = Path(tmpdir) / 'test_file.zip'
-    with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=7) as zip_file:
-        zip_file.write(file_path)
-    yield zip_path, file_path.name
-    zip_path.unlink()
-    file_path.unlink()
 
 
 def test_calculate_range_parameters():
