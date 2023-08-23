@@ -42,7 +42,7 @@ def extract_metadata_xml_bytes(
         raise ValueError('offset stop must be greater than offset start')
     elif offset.start < 0 or offset.stop < 0:
         raise ValueError('offset stop and offset start must be greater than 0')
-    
+
     annotation_range = f'bytes={offset.start}-{offset.stop-1}'
     annotation_bytes = range_get_func(client, url, annotation_range)
     annotation_xml = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(annotation_bytes)
