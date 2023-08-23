@@ -223,7 +223,7 @@ def get_indexes(zipped_safe_path: Path) -> tuple[list[utils.XmlMetadata], dict[s
 
     print('Reading Bursts...')
     burst_metadatas = []
-    for tiff in tqdm(tiffs[0:1]):
+    for tiff in tqdm(tiffs):
         tiff_name = Path(tiff.filename).name
         annotation_name = Path(tiff_name).with_suffix('.xml').name
         annotation_offset = [item for item in xml_metadatas if item.name == annotation_name][0].offset
