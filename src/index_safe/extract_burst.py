@@ -124,9 +124,9 @@ def get_gcps_from_xml(annotation_xml: ET.Element) -> Iterable[utils.GeoControlPo
     for xml_gcp in xml_gcps:
         pixel = int(xml_gcp.findtext('.//{*}pixel'))
         line = int(xml_gcp.findtext('.//{*}line'))
-        longitude = round(float(xml_gcp.findtext('.//{*}longitude')), 7)
-        latitude = round(float(xml_gcp.findtext('.//{*}latitude')), 7)
-        height = round(float(xml_gcp.findtext('.//{*}height')), 7)
+        longitude = float(xml_gcp.findtext('.//{*}longitude'))
+        latitude = float(xml_gcp.findtext('.//{*}latitude'))
+        height = float(xml_gcp.findtext('.//{*}height'))
         gcps.append(utils.GeoControlPoint(pixel, line, longitude, latitude, height))
     return gcps
 
