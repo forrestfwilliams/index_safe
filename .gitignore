@@ -10,8 +10,6 @@ samconfig.toml
 **/*.tiff
 **/*.gz
 **/*.gzidx
-**/*.dflidx
-**/*.bstidx
 **/*.zip
 **/*.xml
 **/*.csv

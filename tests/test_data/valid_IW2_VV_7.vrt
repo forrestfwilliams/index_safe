@@ -1,0 +1,12 @@
+<VRTDataset rasterXSize="25448" rasterYSize="1510">
+    <VRTRasterBand dataType="CInt16" band="1">
+        <NoDataValue>0.0</NoDataValue>
+        <SimpleSource>
+            <SourceFilename relativeToVRT="1">S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85.SAFE/measurement/s1a-iw2-slc-vv-20200604t022253-20200604t022318-032861-03ce65-005.tiff</SourceFilename>
+            <SourceBand>1</SourceBand>
+            <SourceProperties RasterXSize="25448" RasterYSize="13590" DataType="CInt16"/>
+            <SrcRect xOff="132" yOff="10596" xSize="24460" ySize="1460"/>
+            <DstRect xOff="132" yOff="26" xSize="24460" ySize="1460"/>
+        </SimpleSource>
+    </VRTRasterBand>
+</VRTDataset>

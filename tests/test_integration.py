@@ -1,5 +1,11 @@
+import base64
+import json
+import re
 import zipfile
 
+import zran
+import numpy as np
+from osgeo import gdal
 from pathlib import Path
 
 import pytest
@@ -8,7 +14,39 @@ import lxml.etree as ET
 from index_safe import utils
 from index_safe.create_index import index_safe, save_xml_metadata_as_json
 from index_safe.extract_metadata import extract_metadata, json_to_metadata_entries
-from index_safe.extract_burst import json_to_burst_metadata
+from index_safe.extract_burst import extract_burst, json_to_burst_metadata
+
+
+def load_geotiff(infile, band=1):
+    ds = gdal.Open(infile, gdal.GA_ReadOnly)
+
+    data = ds.GetRasterBand(band).ReadAsArray()
+    nodata = ds.GetRasterBand(band).GetNoDataValue()
+    projection = ds.GetProjection()
+    transform = ds.GetGeoTransform()
+    ds = None
+    return data, transform, projection, nodata
+
+
+@pytest.fixture()
+def test_data_dir():
+    path = Path(__file__).parent / 'test_data'
+    path.mkdir(exist_ok=True)
+    return path
+
+
+@pytest.fixture()
+def slc_zip_path(test_data_dir):
+    slc_name = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85'
+    slc_path = test_data_dir / f'{slc_name}.zip'
+    if slc_path.exists():
+        return slc_path
+
+    print('SLC is not present, downloading SLC')
+    in_aws = utils.check_if_in_aws_and_region()
+    strategy = 's3' if in_aws else 'http'
+    utils.download_slc(slc_name, working_dir=test_data_dir, strategy=strategy)
+    return slc_path
 
 
 @pytest.fixture()
@@ -25,6 +63,27 @@ def golden_burst_metadata():
         manifest_offset=utils.Offset(start=4735444504, stop=4735449728),
     )
     return burst_metadata
+
+
+@pytest.fixture()
+def golden_burst_index(test_data_dir):
+    index_name = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_7.dflidx'
+    index_path = test_data_dir / index_name
+    index = zran.Index.read_file(str(index_path))
+    return index
+
+
+@pytest.fixture()
+def golden_burst(test_data_dir, slc_zip_path, golden_burst_metadata):
+    swath, polarization = golden_burst_metadata.name.split('_')[-3:-1]
+    regex = re.compile(rf'^s1\w-{swath.lower()}-slc-{polarization.lower()}.*tiff$')
+    with zipfile.ZipFile(slc_zip_path) as zip_file:
+        zinfo = [zinfo for zinfo in zip_file.infolist() if regex.match(Path(zinfo.filename).name)][0]
+        if not (test_data_dir / zinfo.filename).exists():
+            zip_file.extract(zinfo, path=test_data_dir)
+
+    golden_array = load_geotiff(str(test_data_dir / 'valid_IW2_VV_7.vrt'))[0]
+    yield golden_array
 
 
 @pytest.fixture()
@@ -72,28 +131,6 @@ def golden_xml_metadata():
         ),
     ]
     return xml_metadata
-
-
-@pytest.fixture()
-def test_data_dir():
-    path = Path(__file__).parent / 'test_data'
-    path.mkdir(exist_ok=True)
-    print(path)
-    return path
-
-
-@pytest.fixture()
-def slc_zip_path(test_data_dir):
-    slc_name = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85'
-    slc_path = test_data_dir / f'{slc_name}.zip'
-    if slc_path.exists():
-        return slc_path
-
-    print('SLC is not present, downloading SLC')
-    in_aws = utils.check_if_in_aws_and_region()
-    strategy = 's3' if in_aws else 'http'
-    utils.download_slc(slc_name, working_dir=test_data_dir, strategy=strategy)
-    return slc_path
 
 
 @pytest.mark.skip(reason='Integration test')
@@ -151,3 +188,24 @@ def test_extract_metadata(tmpdir, golden_xml_metadata, slc_zip_path):
         test_string = test_string.replace(' ', '').replace('\n', '')
         assert len(test_string) == len(golden_string)
         assert test_string == golden_string
+
+
+@pytest.mark.skip(reason='Integration testing')
+def test_golden_by_burst(tmpdir, golden_burst_metadata, golden_burst_index, golden_burst):
+    tmpdir = Path(tmpdir)
+    burst_dictionary = golden_burst_metadata.to_dict()
+    dflidx = golden_burst_index.create_index_file()
+    burst_dictionary['dflidx_b64'] = base64.b64encode(dflidx).decode('utf-8')
+
+    burst_index_path = tmpdir / 'burst_index.json'
+    with open(burst_index_path, 'w') as json_file:
+        json.dump(burst_dictionary, json_file)
+
+    in_aws = utils.check_if_in_aws_and_region()
+    strategy = 's3' if in_aws else 'http'
+    burst_path = extract_burst(burst_index_path, strategy=strategy, working_dir=tmpdir)
+
+    test_burst = load_geotiff(str(burst_path))[0]
+
+    equal = np.isclose(golden_burst, test_burst)
+    assert np.all(equal)
