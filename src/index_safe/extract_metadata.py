@@ -144,10 +144,9 @@ def combine_xml_metadata_files(results_dict: dict, output_name='transformed.xml'
             metadata_paths.append(path)
         xml_string = lxml.etree.tostring(results_dict[name], pretty_print=True, encoding='utf-8', xml_declaration=True)
         path.write_bytes(xml_string)
-        # path.write_bytes(results_dict[name])
 
     renderer = XsltRenderer(Path(__file__).parent / 'burst.xsl')
-    renderer.render_to(output_name, metadata_paths, manifest_path)
+    renderer.render_to(directory / output_name, metadata_paths, manifest_path)
     [path.unlink() for path in metadata_paths + [manifest_path]]
 
 
@@ -185,7 +184,7 @@ def select_and_reorder_metadatas(
     return metadatas
 
 
-def extract_metadata(json_file_path: str, polarization: str, strategy='s3'):
+def extract_metadata(json_file_path: str, polarization: str, strategy='s3', working_dir: Optional[Path] = None):
     """Extract all xml metadata files from SLC in ASF archive
     using offset information.
 
@@ -195,6 +194,9 @@ def extract_metadata(json_file_path: str, polarization: str, strategy='s3'):
         strategy: strategy to use for download (s3 | http) s3 only
             works if runnning from us-west-2 region
     """
+    if not working_dir:
+        working_dir = Path.cwd()
+
     metadatas = json_to_metadata_entries(json_file_path)
     metadatas = select_and_reorder_metadatas(metadatas, polarization)
     slc_name = metadatas[0].slc
@@ -207,7 +209,7 @@ def extract_metadata(json_file_path: str, polarization: str, strategy='s3'):
 
     names = [metadata.name for metadata in metadatas]
     results = {name: result for name, result in zip(names, results)}
-    combine_xml_metadata_files(results)
+    combine_xml_metadata_files(results, directory=working_dir)
 
 
 def main():
