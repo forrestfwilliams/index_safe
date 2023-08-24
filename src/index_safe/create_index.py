@@ -264,7 +264,7 @@ def index_safe(slc_name: str, edl_token: str = None, working_dir='.', output_jso
 
     if output_json:
         for key, value in burst_metadatas.items():
-            with open(key, 'w') as json_file:
+            with open(absolute_dir / key, 'w') as json_file:
                 json.dump(value, json_file)
     else:
         [(absolute_dir / key).write_bytes(value) for key, value in burst_metadatas.items()]
@@ -282,7 +282,7 @@ def lambda_handler(event, context):
     s3 = boto3.client('s3')
     bucket_name = os.environ.get('IndexBucketName')
     with tempfile.TemporaryDirectory() as tmpdirname:
-        index_safe(event['scene'], event['edl_token'], working_dir=tmpdirname)
+        index_safe(slc_name=event['scene'], edl_token=event['edl_token'], working_dir=tmpdirname)
         indexes = Path(tmpdirname).glob('*.bstidx')
         [s3.upload_file(str(x), bucket_name, x.name) for x in indexes]
     print('## PROCESS COMPLETE!')
@@ -296,7 +296,7 @@ def main():
     parser = ArgumentParser()
     parser.add_argument('scene')
     args = parser.parse_args()
-    index_safe(args.scene)
+    index_safe(slc_name=args.scene)
 
 
 if __name__ == '__main__':

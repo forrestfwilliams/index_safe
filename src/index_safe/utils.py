@@ -21,6 +21,31 @@ SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
+def check_if_in_aws_and_region(region='us-west-2'):
+    using_ec2 = False
+    try:
+        with open('/var/lib/cloud/instance/datasource') as f:
+            line = f.readlines()
+            if 'DataSourceEc2' in line[0]:
+                using_ec2 = True
+    except FileNotFoundError:
+        pass
+
+    using_lambda = False
+    if 'AWS_LAMBDA_FUNCTION_NAME' in os.environ:
+        using_lambda = True
+
+    in_aws = using_ec2 or using_lambda
+
+    if not in_aws:
+        return False
+
+    if not boto3.Session().region_name == region:
+        return False
+
+    return True
+
+
 @dataclass(frozen=True)
 class GeoControlPoint:
     pixel: int
