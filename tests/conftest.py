@@ -18,16 +18,16 @@ SIMPLIFIED_ANNOTATION = b"""<?xml version="1.0" encoding="UTF-8"?>
         <azimuthAnxTime>1.00e+03</azimuthAnxTime>
         <sensingTime>2022-00-00T00:00:00.000000</sensingTime>
         <byteOffset>10</byteOffset>
-        <firstValidSample count="9">-1 -1 -1 3 3 3 -1 -1 -1</firstValidSample>
-        <lastValidSample count="9">-1 -1 5 5 5 5 5 -1 -1</lastValidSample>
+        <firstValidSample count="9">-1 -1 10 10 10 10 10 -1 -1</firstValidSample>
+        <lastValidSample count="9">-1 -1 100 100 100 100 100 -1 -1</lastValidSample>
       </burst>
       <burst>
         <azimuthTime>2022-01-01T00:00:01.000000</azimuthTime>
         <azimuthAnxTime>2.00+03</azimuthAnxTime>
         <sensingTime>2022-01-01T00:00:01.000000</sensingTime>
         <byteOffset>110</byteOffset>
-        <firstValidSample count="9">-1 -1 -1 3 3 3 -1 -1 -1</firstValidSample>
-        <lastValidSample count="9">-1 -1 5 5 5 5 5 -1 -1</lastValidSample>
+        <firstValidSample count="9">-1 -1 10 10 10 10 10 -1 -1</firstValidSample>
+        <lastValidSample count="9">-1 -1 100 100 100 100 100 -1 -1</lastValidSample>
       </burst>
     </burstList>
   </swathTiming>

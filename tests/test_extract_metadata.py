@@ -27,10 +27,10 @@ def test_extract_metadata_xml_bytes():
         client, range_get = utils.setup_download_client(strategy='http')
 
         with pytest.raises(ValueError, match='offset stop must be greater than offset start'):
-            extract_metadata.extract_metadata_xml_bytes('https://foo.com', equal_offset, client, range_get)
+            extract_metadata.extract_metadata_xml('https://foo.com', equal_offset, client, range_get)
 
         with pytest.raises(ValueError, match='offset stop and offset start must be greater than 0'):
-            extract_metadata.extract_metadata_xml_bytes('https://foo.com', negative_offset, client, range_get)
+            extract_metadata.extract_metadata_xml('https://foo.com', negative_offset, client, range_get)
 
 
 def test_json_to_metadata_entries(tmpdir):

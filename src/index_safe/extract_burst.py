@@ -1,11 +1,9 @@
 import base64
-import io
 import json
 import os
 import struct
 import tempfile
 import xml.etree.ElementTree as ET
-import zlib
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
@@ -18,6 +16,7 @@ import requests
 import zran
 from osgeo import gdal
 
+from index_safe.extract_metadata import extract_metadata_xml
 
 try:
     from index_safe import utils
@@ -59,29 +58,6 @@ def extract_burst_data(
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = zran.decompress(body, index, metadata.uncompressed_offset.start, length)
     return burst_bytes
-
-
-def extract_burst_metadata(
-    url: str,
-    metadata: utils.BurstMetadata,
-    client: Union[boto3.client, requests.sessions.Session],
-    range_get_func: Callable,
-) -> ET.Element:
-    """Extract and load bytes pertaining to a burst's partner annotation XML file from a Sentinel-1 SLC archive.
-
-    Args:
-        url: url location of SLC archive
-        metadata: metadata object for burst to extract
-        client: boto3 S3 client or requests session
-        range_get_func: function to use to get a range of bytes from SLC archive
-
-    Returns:
-        ElementTree root element of annotation XML
-    """
-    annotation_range = f'bytes={metadata.annotation_offset.start}-{metadata.annotation_offset.stop-1}'
-    annotation_bytes = range_get_func(client, url, annotation_range)
-    annotation_xml = ET.parse(io.BytesIO(zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(annotation_bytes)))
-    return annotation_xml
 
 
 def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:
@@ -148,9 +124,9 @@ def get_gcps_from_xml(annotation_xml: ET.Element) -> Iterable[utils.GeoControlPo
     for xml_gcp in xml_gcps:
         pixel = int(xml_gcp.findtext('.//{*}pixel'))
         line = int(xml_gcp.findtext('.//{*}line'))
-        longitude = round(float(xml_gcp.findtext('.//{*}longitude')), 7)
-        latitude = round(float(xml_gcp.findtext('.//{*}latitude')), 7)
-        height = round(float(xml_gcp.findtext('.//{*}height')), 7)
+        longitude = float(xml_gcp.findtext('.//{*}longitude'))
+        latitude = float(xml_gcp.findtext('.//{*}latitude'))
+        height = float(xml_gcp.findtext('.//{*}height'))
         gcps.append(utils.GeoControlPoint(pixel, line, longitude, latitude, height))
     return gcps
 
@@ -339,7 +315,7 @@ def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Pat
 
     client, range_get_func = utils.setup_download_client(strategy='s3')
     burst_bytes = extract_burst_data(url, burst_metadata, index, client, range_get_func)
-    annotation_xml = extract_burst_metadata(url, burst_metadata, client, range_get_func)
+    annotation_xml = extract_metadata_xml(url, burst_metadata.annotation_offset, client, range_get_func)
 
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     valid_window = compute_valid_window(
