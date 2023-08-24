@@ -89,8 +89,8 @@ def test_json_to_burst_metadata(tmpdir):
 
 def test_array_to_raster(tmpdir):
     raster_path = Path(tmpdir) / 'test.tiff'
-    array = np.ones((3,3))
-    gcps = [utils.GeoControlPoint(0,1,2,3,4), utils.GeoControlPoint(5,6,7,8,9)]
+    array = np.ones((3, 3))
+    gcps = [utils.GeoControlPoint(0, 1, 2, 3, 4), utils.GeoControlPoint(5, 6, 7, 8, 9)]
     extract_burst.array_to_raster(raster_path, array, gcps)
 
     ds = gdal.Open(str(raster_path))
