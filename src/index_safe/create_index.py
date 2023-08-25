@@ -199,7 +199,7 @@ def save_burst_metadata_as_json(burst_metadata_dict: dict, working_dir: Path) ->
     """Save a dictionary of burst metadata objects as jsons.
 
     Args:
-        burst_metadata_dict: Dictionary of burst metadata objects to be included with pattern 
+        burst_metadata_dict: Dictionary of burst metadata objects to be included with pattern
         working_dir: Directory to save jsons at
 
     Returns:
