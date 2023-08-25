@@ -94,7 +94,7 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
 
 def create_burst_dflidx(
     indexer: utils.ZipIndexer, burst_offset: utils.Offset
-) -> tuple[utils.Offset, utils.Offset, bytes]:
+) -> Iterable[Union[utils.Offset, utils.Offset, bytes]]:
     """Create a burst-specific zran index containing information needed to download burst tiff from compressed
 
     Args:
@@ -195,14 +195,14 @@ def save_xml_metadata_as_json(entries: Iterable[utils.XmlMetadata], out_name: st
     return out_name
 
 
-def get_indexes(zipped_safe_path: Path) -> tuple[list[utils.XmlMetadata], dict[str : utils.BurstMetadata]]:
+def get_indexes(zipped_safe_path: Path) -> Iterable:
     """Get indexes for XML and bursts in zipped SAFE.
 
     Args:
         zipped_safe_path: Path to zipped SAFE
 
-    Returns: tuple of lists of XmlMetadata and BurstMetadata objects
-
+    Returns:
+        tuple of lists of XmlMetadata and BurstMetadata objects
     """
     with zipfile.ZipFile(zipped_safe_path) as f:
         tiffs = [x for x in f.infolist() if 'tiff' in Path(x.filename).name]
