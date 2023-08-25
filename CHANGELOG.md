@@ -16,6 +16,9 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 * Tests for extract_burst.py
 * Integration tests that use a downloaded S1 SLC
 
+### Modified
+* Standardize all xml operations so that they use lxml
+
 ### Removed
 * Original (limited) test suite dependent on S1 SLC
 
