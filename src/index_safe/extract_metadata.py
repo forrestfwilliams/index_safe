@@ -100,7 +100,7 @@ class XsltRenderer:
     Origionally written by Jason Ninneman and Rohan Weeden of ASF's Ingest and archive team.
     """
 
-    def __init__(self, template_path: Path | str):
+    def __init__(self, template_path: Union[Path, str]):
         self.template_path = Path(template_path)
 
     def render_to(self, out_path: Path | str, metadata_paths: list[Union[Path, str]], manifest_path: Union[Path, str]):
