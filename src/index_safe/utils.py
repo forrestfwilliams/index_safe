@@ -21,6 +21,31 @@ SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
 
 
+def check_if_in_aws_and_region(region='us-west-2'):
+    using_ec2 = False
+    try:
+        with open('/var/lib/cloud/instance/datasource') as f:
+            line = f.readlines()
+            if 'DataSourceEc2' in line[0]:
+                using_ec2 = True
+    except FileNotFoundError:
+        pass
+
+    using_lambda = False
+    if 'AWS_LAMBDA_FUNCTION_NAME' in os.environ:
+        using_lambda = True
+
+    in_aws = using_ec2 or using_lambda
+
+    if not in_aws:
+        return False
+
+    if not boto3.Session().region_name == region:
+        return False
+
+    return True
+
+
 @dataclass(frozen=True)
 class GeoControlPoint:
     pixel: int
@@ -128,7 +153,7 @@ class XmlMetadata:
         return {self.slc: {self.name: {'offset_start': self.offset.start, 'offset_stop': self.offset.stop}}}
 
 
-def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> list[str]:
+def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> Iterable[str]:
     """Calculate range parameters for HTTP range requests.
     Useful when downloading large files in chunks.
 
@@ -335,7 +360,7 @@ def download_slc(scene: str, edl_token: str = None, working_dir=Path('.'), strat
         with client.get(url, stream=True) as s:
             s.raise_for_status()
             total = int(s.headers.get('content-length', 0))
-            with open(zip_name, "wb") as f:
+            with open(working_dir / zip_name, 'wb') as f:
                 with tqdm(unit='B', unit_scale=True, unit_divisor=1024, total=total) as pbar:
                     for chunk in s.iter_content(chunk_size=10 * MB):
                         if chunk:

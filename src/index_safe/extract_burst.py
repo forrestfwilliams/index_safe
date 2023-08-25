@@ -300,7 +300,9 @@ def array_to_raster(
     return out_path
 
 
-def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Path = Path('.')) -> str:
+def extract_burst(
+    burst_index_path: str, edl_token: str = None, strategy: str = 's3', working_dir: Path = Path('.')
+) -> str:
     """Extract burst from SLC in ASF archive using a burst-level index
     file. Index must be available locally.
 
@@ -313,7 +315,7 @@ def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Pat
     index, burst_metadata = json_to_burst_metadata(burst_index_path)
     url = utils.get_download_url(burst_metadata.slc)
 
-    client, range_get_func = utils.setup_download_client(strategy='s3')
+    client, range_get_func = utils.setup_download_client(strategy=strategy)
     burst_bytes = extract_burst_data(url, burst_metadata, index, client, range_get_func)
     annotation_xml = extract_metadata_xml(url, burst_metadata.annotation_offset, client, range_get_func)
 
@@ -324,7 +326,7 @@ def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Pat
     burst_array = invalid_to_nodata(burst_array, valid_window)
     swath_gcps = get_gcps_from_xml(annotation_xml)
     gcps = format_gcps_for_burst(burst_metadata.burst_index, burst_metadata.shape[0], swath_gcps)
-    out_path = array_to_raster(burst_metadata.name, burst_array, gcps)
+    out_path = array_to_raster(working_dir / burst_metadata.name, burst_array, gcps)
     return out_path
 
 
