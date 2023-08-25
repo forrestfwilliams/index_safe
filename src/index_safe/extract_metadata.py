@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional, Union
 
 import boto3
-import lxml.etree
+import lxml.etree as ET
 import requests
 
 
@@ -27,7 +27,7 @@ def extract_metadata_xml(
     offset: utils.Offset,
     client: Union[boto3.client, requests.sessions.Session],
     range_get_func: Callable,
-) -> lxml.etree.Element:
+) -> ET._Element:
     """Extract and decompress bytes pertaining to a metadata XML file from a Sentinel-1 SLC archive.
 
     Args:
@@ -47,7 +47,7 @@ def extract_metadata_xml(
     xml_range = f'bytes={offset.start}-{offset.stop-1}'
     compressed_bytes = range_get_func(client, url, xml_range)
     uncompressed_bytes = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(compressed_bytes)
-    metadata_xml = lxml.etree.parse(io.BytesIO(uncompressed_bytes))
+    metadata_xml = ET.parse(io.BytesIO(uncompressed_bytes))
     return metadata_xml
 
 
@@ -72,7 +72,7 @@ def json_to_metadata_entries(json_path: str) -> Iterable[utils.XmlMetadata]:
     return xml_metadatas
 
 
-def make_input_xml(metadata_paths: Iterable[Path], manifest_path: Path) -> lxml.etree._Element:
+def make_input_xml(metadata_paths: Iterable[Path], manifest_path: Path) -> ET._Element:
     """Create input xml for xslt transformation.
     Origionally written by Gabe Clark and Rohan Weeden of ASF's Ingest and archive team.
 
@@ -83,10 +83,10 @@ def make_input_xml(metadata_paths: Iterable[Path], manifest_path: Path) -> lxml.
     Returns:
         lxml.etree._Element representing input xml
     """
-    root = lxml.etree.Element('files')
+    root = ET.Element('files')
 
     for metadata_path in metadata_paths:
-        child = lxml.etree.SubElement(root, 'file')
+        child = ET.SubElement(root, 'file')
         child.set('name', str(metadata_path))
         child.set('label', metadata_path.name)
 
@@ -118,10 +118,10 @@ class XsltRenderer:
         manifest_path = Path(manifest_path)
 
         input_xml = make_input_xml(metadata_paths, manifest_path)
-        parser = lxml.etree.XMLParser(remove_blank_text=True)
-        xslt_root = lxml.etree.parse(self.template_path, parser)
+        parser = ET.XMLParser(remove_blank_text=True)
+        xslt_root = ET.parse(self.template_path, parser)
 
-        transform = lxml.etree.XSLT(xslt_root)
+        transform = ET.XSLT(xslt_root)
         transformed = transform(input_xml)
         transformed.write(out_path, pretty_print=True)
 
@@ -144,7 +144,7 @@ def combine_xml_metadata_files(results_dict: dict, output_name='transformed.xml'
             manifest_path = path
         else:
             metadata_paths.append(path)
-        xml_string = lxml.etree.tostring(results_dict[name], pretty_print=True, encoding='utf-8', xml_declaration=True)
+        xml_string = ET.tostring(results_dict[name], pretty_print=True, encoding='utf-8', xml_declaration=True)
         path.write_bytes(xml_string)
 
     renderer = XsltRenderer(Path(__file__).parent / 'burst.xsl')

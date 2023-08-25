@@ -3,7 +3,7 @@ import json
 import os
 import struct
 import tempfile
-import xml.etree.ElementTree as ET
+import lxml.etree as ET
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
@@ -308,6 +308,9 @@ def extract_burst(
 
     Args:
         burst_index_path: path to burst index file on disk
+        edl_token: EDL token to use for downloading SLC
+        strategy: download strategy to use ('s3' | 'https')
+        working_dir: directory to use for extract burst to
 
     Returns:
         path to saved burst raster
