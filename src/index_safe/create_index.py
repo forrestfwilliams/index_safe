@@ -3,7 +3,7 @@ import io
 import json
 import os
 import tempfile
-import xml.etree.ElementTree as ET
+import lxml.etree as ET
 import zipfile
 from argparse import ArgumentParser
 from pathlib import Path

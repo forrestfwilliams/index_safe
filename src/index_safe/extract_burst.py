@@ -3,7 +3,7 @@ import json
 import os
 import struct
 import tempfile
-import xml.etree.ElementTree as ET
+import lxml.etree as ET
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
