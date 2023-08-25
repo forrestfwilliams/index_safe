@@ -1,7 +1,6 @@
 import json
 import math
 import os
-import struct
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
