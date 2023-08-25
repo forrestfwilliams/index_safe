@@ -153,7 +153,7 @@ class XmlMetadata:
         return {self.slc: {self.name: {'offset_start': self.offset.start, 'offset_stop': self.offset.stop}}}
 
 
-def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> list[str]:
+def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> Iterable[str]:
     """Calculate range parameters for HTTP range requests.
     Useful when downloading large files in chunks.
 
