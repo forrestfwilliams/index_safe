@@ -308,6 +308,9 @@ def extract_burst(
 
     Args:
         burst_index_path: path to burst index file on disk
+        edl_token: EDL token to use for downloading SLC
+        strategy: download strategy to use ('s3' | 'https')
+        working_dir: directory to use for extract burst to
 
     Returns:
         path to saved burst raster
