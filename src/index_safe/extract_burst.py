@@ -1,7 +1,6 @@
 import base64
 import json
 import os
-import struct
 import tempfile
 import lxml.etree as ET
 from argparse import ArgumentParser
@@ -220,49 +219,6 @@ def json_to_burst_metadata(burst_json_path: str) -> Tuple[zran.Index, utils.Burs
     decoded_bytes = base64.b64decode(metadata_dict['dflidx_b64'])
     index = zran.Index.parse_index_file(decoded_bytes)
     return index, burst_metadata
-
-
-def bytes_to_burst_entry(burst_name: str) -> Tuple[zran.Index, utils.BurstMetadata]:
-    """Convert header bytes of burst-specifc
-    index file to a burst metadata object.
-    Index file must be in working directory.
-
-    Args:
-        burst_name: name of burst to get info for
-
-    Returns:
-        burst metadata object
-    """
-    burst_name = Path(burst_name)
-    with open(str(burst_name.with_suffix('.bstidx')), 'rb') as f:
-        byte_data = f.read(85)
-        index_data = f.read()
-
-    index = zran.Index.parse_index_file(index_data)
-
-    assert byte_data[0:5] == b'BURST'
-
-    slc_name = '_'.join(burst_name.name.split('_')[:-3])
-    data = struct.unpack('<QQQQQQQQQQ', byte_data[5:85])
-
-    shape_y = data[0]
-    shape_x = data[1]
-    index_offset_start = data[2]
-    index_offset_stop = data[3]
-    data_offset_start = data[4]
-    data_offset_stop = data[5]
-    valid_xstart = data[6]
-    valid_xend = data[7]
-    valid_ystart = data[8]
-    valid_yend = data[9]
-
-    shape = (shape_y, shape_x)
-    index_offset = utils.Offset(index_offset_start, index_offset_stop)
-    decompressed_offset = utils.Offset(data_offset_start, data_offset_stop)
-    window = utils.Window(valid_xstart, valid_xend, valid_ystart, valid_yend)
-
-    burst_entry = utils.BurstMetadata(burst_name, slc_name, shape, index_offset, decompressed_offset, window)
-    return index, burst_entry
 
 
 def array_to_raster(

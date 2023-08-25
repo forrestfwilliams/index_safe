@@ -1,7 +1,6 @@
 import json
 import math
 import os
-import struct
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -82,39 +81,6 @@ class BurstMetadata:
     annotation_offset: Offset
     manifest_offset: Offset
 
-    def to_tuple(self):
-        tuppled = (
-            self.name,
-            self.slc,
-            self.shape[0],
-            self.shape[1],
-            self.index_offset.start,
-            self.index_offset.stop,
-            self.uncompressed_offset.start,
-            self.uncompressed_offset.stop,
-            self.valid_window.xstart,
-            self.valid_window.xend,
-            self.valid_window.ystart,
-            self.valid_window.yend,
-        )
-        return tuppled
-
-    def to_bytes(self):
-        data = (
-            self.shape[0],
-            self.shape[1],
-            self.index_offset.start,
-            self.index_offset.stop,
-            self.uncompressed_offset.start,
-            self.uncompressed_offset.stop,
-            self.valid_window.xstart,
-            self.valid_window.xend,
-            self.valid_window.ystart,
-            self.valid_window.yend,
-        )
-        byte_metadata = b'BURST' + struct.pack('<QQQQQQQQQQ', *data)
-        return byte_metadata
-
     def to_dict(self):
         dictionary = {
             'name': self.name,
@@ -145,9 +111,6 @@ class XmlMetadata:
     name: str
     slc: str
     offset: Offset
-
-    def to_tuple(self):
-        return (self.name, self.slc, self.offset.start, self.offset.stop)
 
     def to_dict(self):
         return {self.slc: {self.name: {'offset_start': self.offset.start, 'offset_stop': self.offset.stop}}}

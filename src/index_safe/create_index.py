@@ -195,6 +195,22 @@ def save_xml_metadata_as_json(entries: Iterable[utils.XmlMetadata], out_name: st
     return out_name
 
 
+def save_burst_metadata_as_json(burst_metadata_dict: dict, working_dir: Path) -> Path:
+    """Save a dictionary of burst metadata objects as jsons.
+
+    Args:
+        burst_metadata_dict: Dictionary of burst metadata objects to be included with pattern
+        working_dir: Directory to save jsons at
+
+    Returns:
+        Directory where jsons were saved
+    """
+    for key, value in burst_metadata_dict.items():
+        with open(working_dir / key, 'w') as json_file:
+            json.dump(value, json_file)
+    return working_dir
+
+
 def get_indexes(zipped_safe_path: Path) -> Iterable:
     """Get indexes for XML and bursts in zipped SAFE.
 
@@ -234,7 +250,7 @@ def get_indexes(zipped_safe_path: Path) -> Iterable:
     return xml_metadatas, burst_metadatas
 
 
-def index_safe(slc_name: str, edl_token: str = None, working_dir='.', output_json: bool = True, keep: bool = True):
+def index_safe(slc_name: str, edl_token: str = None, working_dir='.', keep: bool = True):
     """Create the index and other metadata needed to directly download
     and correctly format burst tiffs/metadata Sentinel-1 SAFE zip. Save
     this information in json files. All information for extracting a burst is included in
@@ -244,7 +260,6 @@ def index_safe(slc_name: str, edl_token: str = None, working_dir='.', output_jso
         slc_name: Scene name to index
         edl_token: token for earth data login access
         working_dir: Directory to save metadata and index files
-        output_json: Whether to output index as json or bytes
         keep: If False, delete SLC zip after indexing
 
     Returns:
@@ -261,13 +276,7 @@ def index_safe(slc_name: str, edl_token: str = None, working_dir='.', output_jso
     xml_metadatas, burst_metadatas = get_indexes(zipped_safe_path)
 
     save_xml_metadata_as_json(xml_metadatas, str(absolute_dir / f'{slc_name}_metadata.json'))
-
-    if output_json:
-        for key, value in burst_metadatas.items():
-            with open(absolute_dir / key, 'w') as json_file:
-                json.dump(value, json_file)
-    else:
-        [(absolute_dir / key).write_bytes(value) for key, value in burst_metadatas.items()]
+    save_burst_metadata_as_json(burst_metadatas, absolute_dir)
 
     if not keep:
         os.remove(zipped_safe_path)
