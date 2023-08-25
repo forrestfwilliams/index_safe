@@ -221,7 +221,7 @@ def main():
     """
     parser = ArgumentParser()
     parser.add_argument('metadata_path')
-    parser.add_argument('--polarization', default='vv')
+    parser.add_argument('polarization')
     args = parser.parse_args()
 
     extract_metadata(args.metadata_path, args.polarization)
