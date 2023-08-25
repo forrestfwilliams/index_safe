@@ -326,7 +326,7 @@ def extract_burst(
     burst_array = invalid_to_nodata(burst_array, valid_window)
     swath_gcps = get_gcps_from_xml(annotation_xml)
     gcps = format_gcps_for_burst(burst_metadata.burst_index, burst_metadata.shape[0], swath_gcps)
-    out_path = array_to_raster(burst_metadata.name, burst_array, gcps)
+    out_path = array_to_raster(working_dir / burst_metadata.name, burst_array, gcps)
     return out_path
 
 

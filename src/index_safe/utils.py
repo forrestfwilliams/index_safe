@@ -360,7 +360,7 @@ def download_slc(scene: str, edl_token: str = None, working_dir=Path('.'), strat
         with client.get(url, stream=True) as s:
             s.raise_for_status()
             total = int(s.headers.get('content-length', 0))
-            with open(zip_name, "wb") as f:
+            with open(working_dir / zip_name, 'wb') as f:
                 with tqdm(unit='B', unit_scale=True, unit_divisor=1024, total=total) as pbar:
                     for chunk in s.iter_content(chunk_size=10 * MB):
                         if chunk:

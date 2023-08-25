@@ -133,7 +133,7 @@ def golden_xml_metadata():
     return xml_metadata
 
 
-@pytest.mark.skip(reason='Integration test')
+@pytest.mark.integration
 def test_create_index(slc_zip_path, golden_xml_metadata, golden_burst_metadata):
     safe_name = slc_zip_path.with_suffix('').name
     test_data_dir = slc_zip_path.parent
@@ -159,7 +159,7 @@ def test_create_index(slc_zip_path, golden_xml_metadata, golden_burst_metadata):
     assert index.create_index_file() == golden_index_bytes
 
 
-@pytest.mark.skip(reason='Integration test')
+@pytest.mark.integration
 def test_extract_metadata(tmpdir, golden_xml_metadata, slc_zip_path):
     tmpdir = Path(tmpdir)
     json_path = tmpdir / 'metadata.json'
@@ -190,7 +190,7 @@ def test_extract_metadata(tmpdir, golden_xml_metadata, slc_zip_path):
         assert test_string == golden_string
 
 
-@pytest.mark.skip(reason='Integration testing')
+@pytest.mark.integration
 def test_golden_by_burst(tmpdir, golden_burst_metadata, golden_burst_index, golden_burst):
     tmpdir = Path(tmpdir)
     burst_dictionary = golden_burst_metadata.to_dict()
