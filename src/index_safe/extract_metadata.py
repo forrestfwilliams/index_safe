@@ -103,7 +103,7 @@ class XsltRenderer:
     def __init__(self, template_path: Path | str):
         self.template_path = Path(template_path)
 
-    def render_to(self, out_path: Path | str, metadata_paths: list[Path | str], manifest_path: Path | str):
+    def render_to(self, out_path: Path | str, metadata_paths: list[Union[Path, str]], manifest_path: Union[Path, str]):
         """Render xml using xslt transformation and save to out_path.
 
         Args:
