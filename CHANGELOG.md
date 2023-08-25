@@ -14,6 +14,10 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 * Tests for create_index.py
 * Tests for extract_metadata.py
 * Tests for extract_burst.py
+* Integration tests that use a downloaded S1 SLC
+
+### Removed
+* Original (limited) test suite dependent on S1 SLC
 
 ## [0.1.0]
 
