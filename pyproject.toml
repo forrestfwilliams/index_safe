@@ -55,6 +55,7 @@ develop = [
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = '-ra -q -m "not integration"'
+markers = ["integration"]
 testpaths = ["tests"]
 
 [tool.black]
