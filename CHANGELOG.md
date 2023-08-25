@@ -7,7 +7,7 @@ and this project adheres to [PEP 440](https://www.python.org/dev/peps/pep-0440/)
 and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.1.1]
+## [0.2.0]
 
 ### Added
 * Tests for utils.py
@@ -18,9 +18,11 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Modified
 * Standardize all xml operations so that they use lxml
+* `extract_metadata` polarization option is now required
 
 ### Removed
 * Original (limited) test suite dependent on S1 SLC
+* Burst index byte format removed in favor of json format
 
 ## [0.1.0]
 
