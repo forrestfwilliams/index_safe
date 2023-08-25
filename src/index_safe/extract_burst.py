@@ -1,11 +1,8 @@
 import base64
-import io
 import json
 import os
-import struct
 import tempfile
-import xml.etree.ElementTree as ET
-import zlib
+import lxml.etree as ET
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
@@ -18,6 +15,7 @@ import requests
 import zran
 from osgeo import gdal
 
+from index_safe.extract_metadata import extract_metadata_xml
 
 try:
     from index_safe import utils
@@ -59,29 +57,6 @@ def extract_burst_data(
     length = metadata.uncompressed_offset.stop - metadata.uncompressed_offset.start
     burst_bytes = zran.decompress(body, index, metadata.uncompressed_offset.start, length)
     return burst_bytes
-
-
-def extract_burst_metadata(
-    url: str,
-    metadata: utils.BurstMetadata,
-    client: Union[boto3.client, requests.sessions.Session],
-    range_get_func: Callable,
-) -> ET.Element:
-    """Extract and load bytes pertaining to a burst's partner annotation XML file from a Sentinel-1 SLC archive.
-
-    Args:
-        url: url location of SLC archive
-        metadata: metadata object for burst to extract
-        client: boto3 S3 client or requests session
-        range_get_func: function to use to get a range of bytes from SLC archive
-
-    Returns:
-        ElementTree root element of annotation XML
-    """
-    annotation_range = f'bytes={metadata.annotation_offset.start}-{metadata.annotation_offset.stop-1}'
-    annotation_bytes = range_get_func(client, url, annotation_range)
-    annotation_xml = ET.parse(io.BytesIO(zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(annotation_bytes)))
-    return annotation_xml
 
 
 def compute_valid_window(index: int, burst: ET.Element) -> utils.Window:
@@ -148,9 +123,9 @@ def get_gcps_from_xml(annotation_xml: ET.Element) -> Iterable[utils.GeoControlPo
     for xml_gcp in xml_gcps:
         pixel = int(xml_gcp.findtext('.//{*}pixel'))
         line = int(xml_gcp.findtext('.//{*}line'))
-        longitude = round(float(xml_gcp.findtext('.//{*}longitude')), 7)
-        latitude = round(float(xml_gcp.findtext('.//{*}latitude')), 7)
-        height = round(float(xml_gcp.findtext('.//{*}height')), 7)
+        longitude = float(xml_gcp.findtext('.//{*}longitude'))
+        latitude = float(xml_gcp.findtext('.//{*}latitude'))
+        height = float(xml_gcp.findtext('.//{*}height'))
         gcps.append(utils.GeoControlPoint(pixel, line, longitude, latitude, height))
     return gcps
 
@@ -246,49 +221,6 @@ def json_to_burst_metadata(burst_json_path: str) -> Tuple[zran.Index, utils.Burs
     return index, burst_metadata
 
 
-def bytes_to_burst_entry(burst_name: str) -> Tuple[zran.Index, utils.BurstMetadata]:
-    """Convert header bytes of burst-specifc
-    index file to a burst metadata object.
-    Index file must be in working directory.
-
-    Args:
-        burst_name: name of burst to get info for
-
-    Returns:
-        burst metadata object
-    """
-    burst_name = Path(burst_name)
-    with open(str(burst_name.with_suffix('.bstidx')), 'rb') as f:
-        byte_data = f.read(85)
-        index_data = f.read()
-
-    index = zran.Index.parse_index_file(index_data)
-
-    assert byte_data[0:5] == b'BURST'
-
-    slc_name = '_'.join(burst_name.name.split('_')[:-3])
-    data = struct.unpack('<QQQQQQQQQQ', byte_data[5:85])
-
-    shape_y = data[0]
-    shape_x = data[1]
-    index_offset_start = data[2]
-    index_offset_stop = data[3]
-    data_offset_start = data[4]
-    data_offset_stop = data[5]
-    valid_xstart = data[6]
-    valid_xend = data[7]
-    valid_ystart = data[8]
-    valid_yend = data[9]
-
-    shape = (shape_y, shape_x)
-    index_offset = utils.Offset(index_offset_start, index_offset_stop)
-    decompressed_offset = utils.Offset(data_offset_start, data_offset_stop)
-    window = utils.Window(valid_xstart, valid_xend, valid_ystart, valid_yend)
-
-    burst_entry = utils.BurstMetadata(burst_name, slc_name, shape, index_offset, decompressed_offset, window)
-    return index, burst_entry
-
-
 def array_to_raster(
     out_path: Path, array: np.ndarray, gcps: Iterable[utils.GeoControlPoint], fmt: str = 'GTiff'
 ) -> str:
@@ -324,12 +256,17 @@ def array_to_raster(
     return out_path
 
 
-def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Path = Path('.')) -> str:
+def extract_burst(
+    burst_index_path: str, edl_token: str = None, strategy: str = 's3', working_dir: Path = Path('.')
+) -> str:
     """Extract burst from SLC in ASF archive using a burst-level index
     file. Index must be available locally.
 
     Args:
         burst_index_path: path to burst index file on disk
+        edl_token: EDL token to use for downloading SLC
+        strategy: download strategy to use ('s3' | 'https')
+        working_dir: directory to use for extract burst to
 
     Returns:
         path to saved burst raster
@@ -337,9 +274,9 @@ def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Pat
     index, burst_metadata = json_to_burst_metadata(burst_index_path)
     url = utils.get_download_url(burst_metadata.slc)
 
-    client, range_get_func = utils.setup_download_client(strategy='s3')
+    client, range_get_func = utils.setup_download_client(strategy=strategy)
     burst_bytes = extract_burst_data(url, burst_metadata, index, client, range_get_func)
-    annotation_xml = extract_burst_metadata(url, burst_metadata, client, range_get_func)
+    annotation_xml = extract_metadata_xml(url, burst_metadata.annotation_offset, client, range_get_func)
 
     burst_array = burst_bytes_to_numpy(burst_bytes, (burst_metadata.shape))
     valid_window = compute_valid_window(
@@ -348,7 +285,7 @@ def extract_burst(burst_index_path: str, edl_token: str = None, working_dir: Pat
     burst_array = invalid_to_nodata(burst_array, valid_window)
     swath_gcps = get_gcps_from_xml(annotation_xml)
     gcps = format_gcps_for_burst(burst_metadata.burst_index, burst_metadata.shape[0], swath_gcps)
-    out_path = array_to_raster(burst_metadata.name, burst_array, gcps)
+    out_path = array_to_raster(working_dir / burst_metadata.name, burst_array, gcps)
     return out_path
 
 

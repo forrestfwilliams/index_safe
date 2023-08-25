@@ -1,3 +1,4 @@
+import io
 import json
 import zlib
 from argparse import ArgumentParser
@@ -7,7 +8,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional, Union
 
 import boto3
-import lxml.etree
+import lxml.etree as ET
 import requests
 
 
@@ -21,13 +22,13 @@ MB = 1024 * KB
 MAX_WBITS = 15
 
 
-def extract_metadata_xml_bytes(
+def extract_metadata_xml(
     url: str,
     offset: utils.Offset,
     client: Union[boto3.client, requests.sessions.Session],
     range_get_func: Callable,
-) -> bytes:
-    """Extract and decompress bytes pertaining to an metadata XML file from a Sentinel-1 SLC archive.
+) -> ET._Element:
+    """Extract and decompress bytes pertaining to a metadata XML file from a Sentinel-1 SLC archive.
 
     Args:
         url: url location of SLC archive
@@ -38,10 +39,16 @@ def extract_metadata_xml_bytes(
     Returns:
         bytes representing metadata xml
     """
-    annotation_range = f'bytes={offset.start}-{offset.stop-1}'
-    annotation_bytes = range_get_func(client, url, annotation_range)
-    annotation_xml = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(annotation_bytes)
-    return annotation_xml
+    if offset.stop <= offset.start:
+        raise ValueError('offset stop must be greater than offset start')
+    elif offset.start < 0 or offset.stop < 0:
+        raise ValueError('offset stop and offset start must be greater than 0')
+
+    xml_range = f'bytes={offset.start}-{offset.stop-1}'
+    compressed_bytes = range_get_func(client, url, xml_range)
+    uncompressed_bytes = zlib.decompressobj(-1 * zlib.MAX_WBITS).decompress(compressed_bytes)
+    metadata_xml = ET.parse(io.BytesIO(uncompressed_bytes))
+    return metadata_xml
 
 
 def json_to_metadata_entries(json_path: str) -> Iterable[utils.XmlMetadata]:
@@ -65,7 +72,7 @@ def json_to_metadata_entries(json_path: str) -> Iterable[utils.XmlMetadata]:
     return xml_metadatas
 
 
-def make_input_xml(metadata_paths: Iterable[Path], manifest_path: Path) -> lxml.etree._Element:
+def make_input_xml(metadata_paths: Iterable[Path], manifest_path: Path) -> ET._Element:
     """Create input xml for xslt transformation.
     Origionally written by Gabe Clark and Rohan Weeden of ASF's Ingest and archive team.
 
@@ -76,10 +83,10 @@ def make_input_xml(metadata_paths: Iterable[Path], manifest_path: Path) -> lxml.
     Returns:
         lxml.etree._Element representing input xml
     """
-    root = lxml.etree.Element('files')
+    root = ET.Element('files')
 
     for metadata_path in metadata_paths:
-        child = lxml.etree.SubElement(root, 'file')
+        child = ET.SubElement(root, 'file')
         child.set('name', str(metadata_path))
         child.set('label', metadata_path.name)
 
@@ -93,10 +100,12 @@ class XsltRenderer:
     Origionally written by Jason Ninneman and Rohan Weeden of ASF's Ingest and archive team.
     """
 
-    def __init__(self, template_path: Path | str):
+    def __init__(self, template_path: Union[Path, str]):
         self.template_path = Path(template_path)
 
-    def render_to(self, out_path: Path | str, metadata_paths: list[Path | str], manifest_path: Path | str):
+    def render_to(
+        self, out_path: Union[Path, str], metadata_paths: Iterable[Union[Path, str]], manifest_path: Union[Path, str]
+    ):
         """Render xml using xslt transformation and save to out_path.
 
         Args:
@@ -109,10 +118,10 @@ class XsltRenderer:
         manifest_path = Path(manifest_path)
 
         input_xml = make_input_xml(metadata_paths, manifest_path)
-        parser = lxml.etree.XMLParser(remove_blank_text=True)
-        xslt_root = lxml.etree.parse(self.template_path, parser)
+        parser = ET.XMLParser(remove_blank_text=True)
+        xslt_root = ET.parse(self.template_path, parser)
 
-        transform = lxml.etree.XSLT(xslt_root)
+        transform = ET.XSLT(xslt_root)
         transformed = transform(input_xml)
         transformed.write(out_path, pretty_print=True)
 
@@ -135,10 +144,11 @@ def combine_xml_metadata_files(results_dict: dict, output_name='transformed.xml'
             manifest_path = path
         else:
             metadata_paths.append(path)
-        path.write_bytes(results_dict[name])
+        xml_string = ET.tostring(results_dict[name], pretty_print=True, encoding='utf-8', xml_declaration=True)
+        path.write_bytes(xml_string)
 
     renderer = XsltRenderer(Path(__file__).parent / 'burst.xsl')
-    renderer.render_to(output_name, metadata_paths, manifest_path)
+    renderer.render_to(directory / output_name, metadata_paths, manifest_path)
     [path.unlink() for path in metadata_paths + [manifest_path]]
 
 
@@ -176,7 +186,7 @@ def select_and_reorder_metadatas(
     return metadatas
 
 
-def extract_metadata(json_file_path: str, polarization: str, strategy='s3'):
+def extract_metadata(json_file_path: str, polarization: str, strategy='s3', working_dir: Optional[Path] = None):
     """Extract all xml metadata files from SLC in ASF archive
     using offset information.
 
@@ -186,6 +196,9 @@ def extract_metadata(json_file_path: str, polarization: str, strategy='s3'):
         strategy: strategy to use for download (s3 | http) s3 only
             works if runnning from us-west-2 region
     """
+    if not working_dir:
+        working_dir = Path.cwd()
+
     metadatas = json_to_metadata_entries(json_file_path)
     metadatas = select_and_reorder_metadatas(metadatas, polarization)
     slc_name = metadatas[0].slc
@@ -194,11 +207,11 @@ def extract_metadata(json_file_path: str, polarization: str, strategy='s3'):
 
     client, range_get_func = utils.setup_download_client(strategy=strategy)
     with ThreadPoolExecutor(max_workers=20) as executor:
-        results = executor.map(extract_metadata_xml_bytes, repeat(url), offsets, repeat(client), repeat(range_get_func))
+        results = executor.map(extract_metadata_xml, repeat(url), offsets, repeat(client), repeat(range_get_func))
 
     names = [metadata.name for metadata in metadatas]
     results = {name: result for name, result in zip(names, results)}
-    combine_xml_metadata_files(results)
+    combine_xml_metadata_files(results, directory=working_dir)
 
 
 def main():
@@ -208,7 +221,7 @@ def main():
     """
     parser = ArgumentParser()
     parser.add_argument('metadata_path')
-    parser.add_argument('--polarization', default='vv')
+    parser.add_argument('polarization')
     args = parser.parse_args()
 
     extract_metadata(args.metadata_path, args.polarization)

@@ -1,7 +1,6 @@
 import json
 import math
 import os
-import struct
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,6 +18,31 @@ KB = 1024
 MB = 1024 * KB
 SENTINEL_DISTRIBUTION_URL = 'https://sentinel1.asf.alaska.edu'
 BUCKET = 'asf-ngap2w-p-s1-slc-7b420b89'
+
+
+def check_if_in_aws_and_region(region='us-west-2'):
+    using_ec2 = False
+    try:
+        with open('/var/lib/cloud/instance/datasource') as f:
+            line = f.readlines()
+            if 'DataSourceEc2' in line[0]:
+                using_ec2 = True
+    except FileNotFoundError:
+        pass
+
+    using_lambda = False
+    if 'AWS_LAMBDA_FUNCTION_NAME' in os.environ:
+        using_lambda = True
+
+    in_aws = using_ec2 or using_lambda
+
+    if not in_aws:
+        return False
+
+    if not boto3.Session().region_name == region:
+        return False
+
+    return True
 
 
 @dataclass(frozen=True)
@@ -57,39 +81,6 @@ class BurstMetadata:
     annotation_offset: Offset
     manifest_offset: Offset
 
-    def to_tuple(self):
-        tuppled = (
-            self.name,
-            self.slc,
-            self.shape[0],
-            self.shape[1],
-            self.index_offset.start,
-            self.index_offset.stop,
-            self.uncompressed_offset.start,
-            self.uncompressed_offset.stop,
-            self.valid_window.xstart,
-            self.valid_window.xend,
-            self.valid_window.ystart,
-            self.valid_window.yend,
-        )
-        return tuppled
-
-    def to_bytes(self):
-        data = (
-            self.shape[0],
-            self.shape[1],
-            self.index_offset.start,
-            self.index_offset.stop,
-            self.uncompressed_offset.start,
-            self.uncompressed_offset.stop,
-            self.valid_window.xstart,
-            self.valid_window.xend,
-            self.valid_window.ystart,
-            self.valid_window.yend,
-        )
-        byte_metadata = b'BURST' + struct.pack('<QQQQQQQQQQ', *data)
-        return byte_metadata
-
     def to_dict(self):
         dictionary = {
             'name': self.name,
@@ -121,14 +112,11 @@ class XmlMetadata:
     slc: str
     offset: Offset
 
-    def to_tuple(self):
-        return (self.name, self.slc, self.offset.start, self.offset.stop)
-
     def to_dict(self):
         return {self.slc: {self.name: {'offset_start': self.offset.start, 'offset_stop': self.offset.stop}}}
 
 
-def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> list[str]:
+def calculate_range_parameters(total_size: int, offset: int, chunk_size: int) -> Iterable[str]:
     """Calculate range parameters for HTTP range requests.
     Useful when downloading large files in chunks.
 
@@ -266,35 +254,6 @@ def s3_range_get(client: boto3.client, url: str, range_header: str) -> bytes:
     return body
 
 
-def setup_download_client(strategy: str = 's3', edl_token: str = None, working_dir: Path = Path('.')) -> bytes:
-    """Create client and range_get_func for downloading from SLC archive based on strategy (s3 | http).
-
-    Args:
-        strategy: strategy to use for download (s3 | http) s3 only works if runnning from us-west-2 region
-        edl_token: EDL token for downloading from ASF's archive, if None will assume token is specified
-                   in environment variable EDL_TOKEN
-        working_dir: working directory where temparary credentials will be stored
-
-    Returns:
-        S3 client or http client, and matching *_range_get function
-    """
-    if strategy == 's3':
-        creds = get_credentials(edl_token, working_dir)
-        client = boto3.client(
-            "s3",
-            aws_access_key_id=creds["accessKeyId"],
-            aws_secret_access_key=creds["secretAccessKey"],
-            aws_session_token=creds["sessionToken"],
-        )
-        range_get = s3_range_get
-
-    elif strategy == 'http':
-        client = requests.session()
-        range_get = http_range_get
-
-    return client, range_get
-
-
 def http_range_get(client: requests.sessions.Session, url: str, range_header: str) -> bytes:
     """Get a range of bytes from an S1 SLC file in ASF's archive.
     Used in threading to download a large file in chunks.
@@ -312,6 +271,35 @@ def http_range_get(client: requests.sessions.Session, url: str, range_header: st
     return body
 
 
+def setup_download_client(strategy: str = 's3', edl_token: str = None, working_dir: Path = Path('.')) -> bytes:
+    """Create client and range_get_func for downloading from SLC archive based on strategy (s3 | http).
+
+    Args:
+        strategy: strategy to use for download (s3 | http) s3 only works if runnning from us-west-2 region
+        edl_token: EDL token for downloading from ASF's archive, if None will assume token is specified
+                   in environment variable EDL_TOKEN
+        working_dir: working directory where temparary credentials will be stored
+
+    Returns:
+        S3 client or http client, and matching *_range_get function
+    """
+    if strategy == 's3':
+        creds = get_credentials(edl_token, working_dir)
+        client = boto3.client(
+            's3',
+            aws_access_key_id=creds['accessKeyId'],
+            aws_secret_access_key=creds['secretAccessKey'],
+            aws_session_token=creds['sessionToken'],
+        )
+        range_get = s3_range_get
+
+    elif strategy == 'http':
+        client = requests.session()
+        range_get = http_range_get
+
+    return client, range_get
+
+
 def download_slc(scene: str, edl_token: str = None, working_dir=Path('.'), strategy='s3') -> str:
     """Download an SLC zip file from ASF.
 
@@ -323,15 +311,8 @@ def download_slc(scene: str, edl_token: str = None, working_dir=Path('.'), strat
     zip_name = f'{scene}.zip'
     url = get_download_url(scene)
 
+    client, _ = setup_download_client(strategy, edl_token, working_dir)
     if strategy == 's3':
-        creds = get_credentials(edl_token, working_dir)
-        client = boto3.client(
-            "s3",
-            aws_access_key_id=creds["accessKeyId"],
-            aws_secret_access_key=creds["secretAccessKey"],
-            aws_session_token=creds["sessionToken"],
-        )
-
         metadata = client.head_object(Bucket=BUCKET, Key=zip_name)
         total_length = int(metadata.get('ContentLength', 0))
         with tqdm(total=total_length, unit='B', unit_scale=True, unit_divisor=1024) as pbar:
@@ -339,17 +320,16 @@ def download_slc(scene: str, edl_token: str = None, working_dir=Path('.'), strat
                 client.download_fileobj(BUCKET, zip_name, f, Callback=pbar.update)
 
     elif strategy == 'http':
-        session = requests.Session()
-        with session.get(url, stream=True) as s:
+        with client.get(url, stream=True) as s:
             s.raise_for_status()
             total = int(s.headers.get('content-length', 0))
-            with open(zip_name, "wb") as f:
+            with open(working_dir / zip_name, 'wb') as f:
                 with tqdm(unit='B', unit_scale=True, unit_divisor=1024, total=total) as pbar:
                     for chunk in s.iter_content(chunk_size=10 * MB):
                         if chunk:
                             f.write(chunk)
                             pbar.update(len(chunk))
-        session.close()
+        client.close()
 
 
 def get_zip_compressed_offset(zip_path: str, zinfo: zipfile.ZipInfo) -> Offset:
@@ -367,8 +347,8 @@ def get_zip_compressed_offset(zip_path: str, zinfo: zipfile.ZipInfo) -> Offset:
         f.seek(zinfo.header_offset)
         data = f.read(30)
 
-    n = int.from_bytes(data[26:28], "little")
-    m = int.from_bytes(data[28:30], "little")
+    n = int.from_bytes(data[26:28], 'little')
+    m = int.from_bytes(data[28:30], 'little')
 
     data_start = zinfo.header_offset + n + m + 30
     data_stop = data_start + zinfo.compress_size

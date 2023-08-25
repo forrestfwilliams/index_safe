@@ -13,6 +13,7 @@ dependencies:
   - lxml
   # For packaging, and testing
   - pytest
+  - pytest-cov
   - pipreqs
   - pip:
     - zran
