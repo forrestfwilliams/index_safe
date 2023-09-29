@@ -174,8 +174,26 @@ def create_index(
     return bursts
 
 
+def xml_metadata_as_json(entries: Iterable[utils.XmlMetadata]) -> str:
+    """Creates a list of XmlMetadata objects as json.
+
+    Args:
+        entries: List of metadata objects to be included
+
+    Returns:
+        JSON string of metadata
+    """
+    slc = entries[0].slc
+    metadata_dicts = [entry.to_dict()[slc] for entry in entries]
+    combined_dict = {}
+    for metadata_dict in metadata_dicts:
+        combined_dict.update(metadata_dict)
+
+    return json.dumps({slc: combined_dict})
+
+
 def save_xml_metadata_as_json(entries: Iterable[utils.XmlMetadata], out_name: str) -> str:
-    """Save a list of XmlMetadata objects as a json.
+    """Create and save a list of XmlMetadata objects as a json.
 
     Args:
         entries: List of metadata objects to be included
@@ -191,7 +209,7 @@ def save_xml_metadata_as_json(entries: Iterable[utils.XmlMetadata], out_name: st
         combined_dict.update(metadata_dict)
 
     with open(out_name, 'w') as json_file:
-        json.dump({slc: combined_dict}, json_file)
+        xml_metadata_as_json(entries)
     return out_name
 
 
