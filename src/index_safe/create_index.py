@@ -209,7 +209,7 @@ def save_xml_metadata_as_json(entries: Iterable[utils.XmlMetadata], out_name: st
         combined_dict.update(metadata_dict)
 
     with open(out_name, 'w') as json_file:
-        xml_metadata_as_json(entries)
+        json_file.write(xml_metadata_as_json(entries))
     return out_name
 
 
