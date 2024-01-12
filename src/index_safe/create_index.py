@@ -202,12 +202,6 @@ def save_xml_metadata_as_json(entries: Iterable[utils.XmlMetadata], out_name: st
     Returns:
         Path/name where json was saved
     """
-    slc = entries[0].slc
-    metadata_dicts = [entry.to_dict()[slc] for entry in entries]
-    combined_dict = {}
-    for metadata_dict in metadata_dicts:
-        combined_dict.update(metadata_dict)
-
     with open(out_name, 'w') as json_file:
         json_file.write(xml_metadata_as_json(entries))
     return out_name
