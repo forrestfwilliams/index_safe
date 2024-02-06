@@ -88,8 +88,8 @@ def create_burst_name(slc_name: str, swath_name: str, burst_index: str) -> str:
         Name of burst
     """
     _, swath, _, polarization, *_ = swath_name.split('-')
-    # EWs can have burst index values over 9, so we will zeropad it.
-    filename_burst_idx = str(burst_index).zfill(2) if slc_name[4:6] == 'EW' else str(burst_index)
+    # EWs can have burst index values over 9, so we will zeropad the burst number.
+    filename_burst_idx = str(burst_index).zfill(2)
     all_parts = [slc_name, swath.upper(), polarization.upper(), filename_burst_idx]
     return '_'.join(all_parts) + '.tiff'
 

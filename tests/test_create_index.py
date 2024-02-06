@@ -23,9 +23,12 @@ def test_create_xml_metadata():
 def test_create_burst_name():
     test_name = 'SLCNAME'
     test_swath = 'foo-iw2-bar-vv-baz.tiff'
-    test_burst_index = 1
-    burst_name = create_index.create_burst_name(test_name, test_swath, test_burst_index)
-    assert burst_name == 'SLCNAME_IW2_VV_1.tiff'
+
+    burst_name1 = create_index.create_burst_name(test_name, test_swath, 1)
+    assert burst_name1 == 'SLCNAME_IW2_VV_01.tiff'
+
+    burst_name2 = create_index.create_burst_name(test_name, test_swath, 11)
+    assert burst_name2 == 'SLCNAME_IW2_VV_11.tiff'
 
 
 def test_create_burst_dflidx(zip_deflated):
@@ -54,7 +57,7 @@ def test_create_index(zip_deflated, annotation_xml):
     keys = list(test_burst_metadata.keys())
     first_burst = test_burst_metadata[keys[0]]
     golden_burst = utils.BurstMetadata(
-        name='SLCNAME_IW2_VV_0.tiff',
+        name='SLCNAME_IW2_VV_00.tiff',
         slc='SLCNAME',
         swath='IW2',
         burst_index=0,

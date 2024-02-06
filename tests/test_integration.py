@@ -52,7 +52,7 @@ def slc_zip_path(test_data_dir):
 @pytest.fixture()
 def golden_burst_metadata():
     burst_metadata = utils.BurstMetadata(
-        name='S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_7.tiff',
+        name='S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_07.tiff',
         slc='S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85',
         swath='IW2',
         burst_index=7,
@@ -67,7 +67,7 @@ def golden_burst_metadata():
 
 @pytest.fixture()
 def golden_burst_index(test_data_dir):
-    index_name = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_7.dflidx'
+    index_name = 'S1A_IW_SLC__1SDV_20200604T022251_20200604T022318_032861_03CE65_7C85_IW2_VV_07.dflidx'
     index_path = test_data_dir / index_name
     index = zran.Index.read_file(str(index_path))
     return index
@@ -82,7 +82,7 @@ def golden_burst(test_data_dir, slc_zip_path, golden_burst_metadata):
         if not (test_data_dir / zinfo.filename).exists():
             zip_file.extract(zinfo, path=test_data_dir)
 
-    golden_array = load_geotiff(str(test_data_dir / 'valid_IW2_VV_7.vrt'))[0]
+    golden_array = load_geotiff(str(test_data_dir / 'valid_IW2_VV_07.vrt'))[0]
     yield golden_array
 
 
@@ -151,7 +151,7 @@ def test_create_index(slc_zip_path, golden_xml_metadata, golden_burst_metadata):
         test_xml = [xml for xml in xml_metadatas if xml.name == golden_xml.name][0]
         assert test_xml == golden_xml
 
-    index_path = [index for index in indexes if 'IW2_VV_7.json' in index.name][0]
+    index_path = [index for index in indexes if 'IW2_VV_07.json' in index.name][0]
     index, burst_metadata = json_to_burst_metadata(index_path)
     assert golden_burst_metadata == burst_metadata
 
